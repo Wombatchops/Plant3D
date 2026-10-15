@@ -839,6 +839,15 @@ function buildMergedRowFromRecord(rec){
   return row;
 }
 
+// A From/To that was never unambiguously resolved (resolveGroup found more
+// than one candidate) is stored as a single " / "-joined string, e.g.
+// "PUMP-01 / TK-204". Every place that offers From/To as pickable options
+// splits on that separator first, so each joined alternative becomes its
+// own selectable option instead of one unusable glued string.
+function splitJoinedVals(s){
+  return String(s||"").split(" / ").map(function(x){ return x.trim(); }).filter(Boolean);
+}
+
 function computeMergeCandidates(members){
   function v(r,f){ return displayVal(r,f) || ""; }
   function nk(s){ return String(s||"").trim().toLowerCase(); }
@@ -846,15 +855,23 @@ function computeMergeCandidates(members){
   members.forEach(function(a){
     members.forEach(function(b){
       if(a===b) return;
-      var at=v(a,"to"), bf=v(b,"from");
-      if(at && bf && nk(at)===nk(bf)) linked[nk(at)]=true;
+      var atVals = splitJoinedVals(v(a,"to"));
+      var bfVals = splitJoinedVals(v(b,"from"));
+      atVals.forEach(function(at){
+        bfVals.forEach(function(bf){
+          if(at && bf && nk(at)===nk(bf)) linked[nk(at)]=true;
+        });
+      });
     });
   });
   var fromVals=[], toVals=[], seenF={}, seenT={};
   members.forEach(function(r){
-    var f=v(r,"from"), t=v(r,"to");
-    if(f && !linked[nk(f)] && !seenF[nk(f)]){ seenF[nk(f)]=true; fromVals.push(f); }
-    if(t && !linked[nk(t)] && !seenT[nk(t)]){ seenT[nk(t)]=true; toVals.push(t); }
+    splitJoinedVals(v(r,"from")).forEach(function(f){
+      if(f && !linked[nk(f)] && !seenF[nk(f)]){ seenF[nk(f)]=true; fromVals.push(f); }
+    });
+    splitJoinedVals(v(r,"to")).forEach(function(t){
+      if(t && !linked[nk(t)] && !seenT[nk(t)]){ seenT[nk(t)]=true; toVals.push(t); }
+    });
   });
   fromVals.sort(naturalCompare); toVals.sort(naturalCompare);
   return { fromVals:fromVals, toVals:toVals, linkedValues:Object.keys(linked) };
@@ -1470,24 +1487,49 @@ function renderLineListTable(){
   // wire inline edit
   Array.prototype.forEach.call(document.querySelectorAll('[data-action="edit-cell"]'), function(td){
     td.addEventListener("click", function(){
-      if(td.querySelector("input")) return;
+      if(td.querySelector("input,select")) return;
       var rk = td.getAttribute("data-rowkey"), fld = td.getAttribute("data-field");
       var current = displayVal(getEffectiveLineRows().filter(function(r){return r.key===rk;})[0], fld) || "";
-      td.innerHTML = '<input type="text" value="'+escapeHtml(current)+'">';
-      var input = td.querySelector("input");
-      input.focus(); input.select();
-      function commit(){
-        var val = input.value;
+      var tokens = splitJoinedVals(current);
+      function commitVal(val){
         if(!state.overrides[rk]) state.overrides[rk] = {};
         state.overrides[rk][fld] = val;
         renderLineListTable();
       }
-      input.addEventListener("blur", commit);
-      input.addEventListener("keydown", function(ev){
-        if(ev.key==="Enter") input.blur();
-        if(ev.key==="Escape"){ renderLineListTable(); }
-      });
-      input.addEventListener("click", function(ev){ ev.stopPropagation(); });
+      if(tokens.length>1){
+        // Unresolved " / "-joined value (e.g. "PUMP-01 / TK-204") —
+        // offer each joined alternative as its own option instead of one
+        // glued, unusable string.
+        var optsHtml = '<option value="" disabled selected>Choose one of '+tokens.length+'…</option>' +
+          tokens.map(function(t){ return '<option value="'+escapeHtml(t)+'">'+escapeHtml(t)+'</option>'; }).join("") +
+          '<option value="__custom__">Type manually…</option>';
+        td.innerHTML = '<select>'+optsHtml+'</select><input type="text" style="display:none;margin-top:3px;width:100%;" placeholder="Enter value">';
+        var sel = td.querySelector("select");
+        var input2 = td.querySelector("input");
+        sel.addEventListener("click", function(ev){ ev.stopPropagation(); });
+        input2.addEventListener("click", function(ev){ ev.stopPropagation(); });
+        sel.addEventListener("change", function(){
+          if(sel.value==="__custom__"){ input2.style.display="block"; input2.value=""; input2.focus(); }
+          else commitVal(sel.value);
+        });
+        input2.addEventListener("blur", function(){ commitVal(input2.value); });
+        input2.addEventListener("keydown", function(ev){
+          if(ev.key==="Enter") input2.blur();
+          if(ev.key==="Escape") renderLineListTable();
+        });
+        sel.addEventListener("keydown", function(ev){ if(ev.key==="Escape") renderLineListTable(); });
+        sel.focus();
+      } else {
+        td.innerHTML = '<input type="text" value="'+escapeHtml(current)+'">';
+        var input = td.querySelector("input");
+        input.focus(); input.select();
+        input.addEventListener("blur", function(){ commitVal(input.value); });
+        input.addEventListener("keydown", function(ev){
+          if(ev.key==="Enter") input.blur();
+          if(ev.key==="Escape"){ renderLineListTable(); }
+        });
+        input.addEventListener("click", function(ev){ ev.stopPropagation(); });
+      }
     });
   });
 
