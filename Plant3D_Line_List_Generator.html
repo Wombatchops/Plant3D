@@ -1,0 +1,1758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plant 3D Line List Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#1c2127; --ink-soft:#4b535c; --ink-faint:#7c848d;
+    --paper:#e9edf1; --panel:#ffffff; --panel-alt:#f4f6f8;
+    --line:#ccd4da; --line-strong:#9aa5ae;
+    --navy:#1f3a5f; --navy-deep:#132743;
+    --steel:#3a6ea5; --steel-soft:#dfeaf5;
+    --amber:#c98a1f; --amber-soft:#faf0dc;
+    --green:#2f7d53; --green-soft:#e2f2e8;
+    --rust:#b3432b; --rust-soft:#f7e5e0;
+    --radius:3px;
+    --mono:'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+    --sans:'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{margin:0;font-family:var(--sans);color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased;}
+  button{font-family:inherit;}
+  input,select,textarea{font-family:inherit;font-size:inherit;color:inherit;}
+  a{color:var(--steel);}
+  .scroll{overflow:auto;}
+  .scroll::-webkit-scrollbar{width:10px;height:10px;}
+  .scroll::-webkit-scrollbar-track{background:transparent;}
+  .scroll::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:6px;border:2px solid var(--panel);}
+
+  #app{height:100vh;display:flex;flex-direction:column;min-width:960px;}
+
+  /* ---------- Header / title block (Cadet Review style) ---------- */
+  header.titleblock{flex:0 0 auto;background:var(--navy);color:#eef3f8;border-bottom:2px solid var(--navy-deep);}
+  .tb-top{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 8px;border-bottom:1px solid rgba(255,255,255,0.14);flex-wrap:wrap;gap:8px;}
+  .tb-title{display:flex;align-items:center;gap:14px;}
+  .tb-title .logo{height:24px;width:auto;display:block;flex:0 0 auto;}
+  .tb-title h1{font-size:16px;font-weight:600;margin:0;letter-spacing:.01em;}
+  .tb-title .sub{font-size:11.5px;color:#b7c7d8;}
+  .tb-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .progress-chip{font-family:var(--mono);font-size:11.5px;color:#cfe0ef;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);padding:4px 9px;border-radius:2px;white-space:nowrap;}
+  .progress-chip.warn{color:#f4d8b0;border-color:rgba(233,180,80,0.5);background:rgba(233,180,80,0.12);}
+  .btn{appearance:none;border:1px solid var(--line-strong);background:var(--panel);color:var(--ink);padding:6px 12px;font-size:12.5px;font-weight:600;border-radius:2px;cursor:pointer;line-height:1.3;}
+  .btn:hover{background:var(--panel-alt);}
+  .btn:active{transform:translateY(1px);}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-primary{background:#e8a13a;border-color:#c98826;color:#2a1c00;}
+  .btn-primary:hover{background:#f0ad48;}
+  .btn-ghost{background:transparent;border-color:rgba(255,255,255,0.4);color:#eef3f8;}
+  .btn-ghost:hover{background:rgba(255,255,255,0.1);}
+  .btn-sm{padding:3px 8px;font-size:11px;}
+
+  .tb-fields{display:flex;flex-wrap:wrap;gap:0;padding:0 16px;}
+  .tb-field{display:flex;flex-direction:column;gap:3px;padding:8px 14px 9px 0;margin-right:14px;border-right:1px solid rgba(255,255,255,0.14);min-width:120px;}
+  .tb-field:last-child{border-right:none;}
+  .tb-field label{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#8fa8c2;}
+  .tb-field input{background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.3);color:#f2f6fa;font-size:13px;padding:1px 0 2px;min-width:130px;}
+  .tb-field input:focus{outline:none;border-bottom-color:#e8a13a;}
+  .tb-field input::placeholder{color:#6f88a3;}
+  .tb-legend{margin-left:auto;display:flex;align-items:center;gap:10px;padding:8px 4px 9px 14px;flex-wrap:wrap;}
+
+  /* ---------- Tabs ---------- */
+  #page-nav{flex:0 0 auto;display:flex;gap:2px;padding:8px 12px 0;background:var(--navy-deep);}
+  .page-tab{padding:8px 18px;font-size:11.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;background:rgba(255,255,255,0.06);color:#9db6d3;border:none;border-radius:3px 3px 0 0;cursor:pointer;font-family:var(--sans);}
+  .page-tab:hover{background:rgba(255,255,255,0.14);color:#dbe6f0;}
+  .page-tab.active{background:var(--paper);color:var(--navy);}
+  .tabpanel{display:none;flex:1 1 auto;min-height:0;flex-direction:column;}
+  .tabpanel.active{display:flex;}
+
+  /* ---------- Drop / empty state ---------- */
+  #dropzone{flex:1;display:flex;align-items:center;justify-content:center;padding:40px;}
+  #dropzone-inner{border:1.5px dashed var(--line-strong);border-radius:6px;padding:40px 48px;text-align:center;max-width:480px;background:var(--panel);}
+  #dropzone-inner.active{border-color:var(--steel);background:var(--steel-soft);}
+  #dropzone-title{font-weight:600;font-size:16px;margin:12px 0 6px;color:var(--ink);}
+  #dropzone-sub{color:var(--ink-soft);font-size:12.5px;line-height:1.6;margin-bottom:18px;}
+
+  /* ---------- Line List toolbar ---------- */
+  .ll-toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;padding:10px 16px;background:var(--panel-alt);border-bottom:1px solid var(--line);flex:0 0 auto;}
+  .ll-field{display:flex;flex-direction:column;gap:3px;}
+  .ll-field label{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);}
+  .ll-field input[type=text], .ll-field select{font-size:12.5px;padding:6px 8px;border:1px solid var(--line-strong);border-radius:2px;background:var(--panel);color:var(--ink);min-width:120px;}
+  .ll-check{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);padding-bottom:6px;}
+  .ll-spacer{flex:1;}
+  .ll-count{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);padding-bottom:7px;white-space:nowrap;}
+  .btn-toggle.on{background:var(--steel);border-color:var(--steel);color:#fff;}
+
+  /* ---------- Line List body layout ---------- */
+  .ll-body{flex:1;display:flex;min-height:0;}
+  .ll-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;}
+  .ll-resize-handle{width:5px;flex-shrink:0;cursor:col-resize;background:var(--panel-alt);border-left:1px solid var(--line);border-right:1px solid var(--line);}
+  .ll-resize-handle:hover,.ll-resize-handle.active{background:var(--steel);}
+  .ll-aside{width:330px;flex-shrink:0;border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0;}
+  .ll-aside-head{padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel-alt);flex:0 0 auto;}
+  .ll-aside-head .lt{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);}
+  .ll-aside-head .ltag{font-size:14px;font-weight:700;color:var(--navy);margin-top:2px;word-break:break-word;}
+  .ll-aside-body{flex:1;overflow-y:auto;padding:14px;}
+  .ll-aside-placeholder{color:var(--ink-faint);font-size:12.5px;line-height:1.6;padding:6px 2px;}
+  .ll-suggestion{border:1px solid #d9a441;background:var(--amber-soft);border-radius:3px;padding:10px 12px;margin-bottom:10px;}
+  .ll-suggestion .sug-title{font-weight:700;font-size:11px;color:#8a5a12;margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;}
+  .ll-suggestion .sug-text{font-size:12px;line-height:1.55;color:var(--ink);}
+  .ll-ok-box{border:1px solid #9bcbab;background:var(--green-soft);border-radius:3px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#1e5c3a;}
+  .ll-candidates{margin-top:2px;margin-bottom:12px;}
+  .ll-candidates .cand-label{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;color:var(--ink-faint);margin-bottom:4px;}
+  .ll-cand-row{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 8px;border:1px solid var(--line);border-radius:2px;margin-bottom:4px;font-size:11.5px;background:var(--panel-alt);}
+  .ll-cand-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ll-cand-row button{font-size:10px;padding:2px 6px;border-radius:2px;border:1px solid var(--steel);background:var(--panel);color:var(--steel);cursor:pointer;font-weight:600;flex:0 0 auto;}
+  .ll-cand-row button:hover{background:var(--steel-soft);}
+  .ll-aside-section-title{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-faint);margin:14px 0 6px;}
+  .ll-aside-section-title:first-child{margin-top:0;}
+  .ll-status-row{display:flex;align-items:center;gap:7px;margin-bottom:8px;}
+  .ll-status-label{font-size:13px;font-weight:700;}
+  .ll-aside-actions{margin-bottom:6px;}
+  table.aside-seg-table{width:100%;border-collapse:collapse;font-size:11px;}
+  table.aside-seg-table th, table.aside-seg-table td{border:1px solid var(--line);padding:4px 6px;text-align:left;word-break:break-word;}
+  table.aside-seg-table th{background:var(--panel-alt);font-weight:600;}
+  tr.ll-row.selected td.llc{box-shadow:inset 0 0 0 1.5px var(--steel);}
+
+  /* ---------- Traffic light status ---------- */
+  .tl-dot{width:10px;height:10px;border-radius:50%;display:inline-block;cursor:pointer;flex-shrink:0;}
+  .tl-dot.outstanding{background:var(--amber);box-shadow:0 0 0 1px #a8721a;}
+  .tl-dot.fixed{background:var(--green);box-shadow:0 0 0 1px #1e5c3a;}
+  .tl-dot.ignore{background-image:repeating-linear-gradient(135deg,#c7cdd2,#c7cdd2 3px,#aab1b8 3px,#aab1b8 6px);box-shadow:0 0 0 1px #7c848d;}
+  .tl-legend{display:flex;gap:12px;align-items:center;font-size:11px;color:var(--ink-soft);padding-bottom:7px;}
+  .tl-legend span{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;}
+  .tl-legend .tl-dot{cursor:default;}
+  .branch-badge{font-family:var(--mono);font-size:8.5px;color:#6a4fae;border:1px solid #d8cdf0;background:#f1ecfa;padding:1px 4px;border-radius:2px;margin-right:5px;vertical-align:middle;white-space:nowrap;}
+  tr.ll-row.status-outstanding td.llc{background:var(--amber-soft);}
+  tr.ll-row.status-outstanding:hover td.llc{background:#f6e6c6;}
+  tr.ll-row.status-fixed td.llc{background:var(--green-soft);}
+  tr.ll-row.status-fixed:hover td.llc{background:#cfe9d6;}
+  tr.ll-row.status-ignore td.llc{background:repeating-linear-gradient(135deg,#eef0f1,#eef0f1 6px,#e2e5e7 6px,#e2e5e7 12px);color:var(--ink-faint);}
+
+  /* ---------- Line List table ---------- */
+  .ll-tablewrap{flex:1;overflow:auto;background:var(--panel);}
+  table.ll-table{border-collapse:collapse;font-size:12px;width:max-content;min-width:100%;}
+  table.ll-table th{position:sticky;top:0;background:var(--panel-alt);color:var(--ink);font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-strong);border-right:1px solid var(--line);z-index:2;font-size:11px;white-space:nowrap;cursor:pointer;user-select:none;}
+  table.ll-table th:hover{background:#e6eaee;}
+  table.ll-table th.nosort{cursor:default;}
+  table.ll-table th.nosort:hover{background:var(--panel-alt);}
+  .sort-ind{font-size:9px;margin-left:3px;opacity:.7;}
+  td.llc{padding:6px 10px;border-bottom:1px solid var(--line);border-right:1px solid var(--line);white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis;vertical-align:top;}
+  tr.ll-row:hover td.llc{background:#f5f8fa;}
+  tr.ll-row.flagged td.llc{background:var(--amber-soft);}
+  tr.ll-row.flagged:hover td.llc{background:#f6e6c6;}
+  td.llc.wrap{white-space:normal;}
+  td.llc.num{font-family:var(--mono);}
+  td.flagcell{text-align:center;cursor:pointer;width:22px;}
+  .flag-dot{width:8px;height:8px;border-radius:50%;background:var(--amber);display:inline-block;box-shadow:0 0 0 1px #a8721a;}
+  td.linecell{cursor:pointer;font-weight:600;color:var(--navy);}
+  td.linecell:hover{text-decoration:underline;}
+  td.editable{cursor:text;}
+  td.editable:hover{box-shadow:inset 0 0 0 1px var(--steel);}
+  td.editable input{width:100%;border:none;background:transparent;font-family:inherit;font-size:12px;color:var(--ink);padding:0;}
+  td.editable input:focus{outline:none;}
+  .edited-tag{font-family:var(--mono);font-size:8.5px;color:var(--steel);border:1px solid var(--steel-soft);background:var(--steel-soft);padding:0 4px;border-radius:2px;margin-left:5px;vertical-align:middle;}
+  .undo-icon{display:inline-block;margin-left:4px;cursor:pointer;color:var(--steel);font-size:12px;vertical-align:middle;line-height:1;}
+  .undo-icon:hover{color:var(--rust);}
+  tr.detail-row td{background:var(--panel-alt);padding:10px 16px;border-right:none;white-space:normal;}
+  .detail-flags{font-size:11.5px;color:var(--rust);margin-bottom:6px;}
+  .detail-flags b{color:var(--rust);}
+  table.seg-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:4px;}
+  table.seg-table th, table.seg-table td{border:1px solid var(--line);padding:4px 8px;text-align:left;}
+  table.seg-table th{background:var(--panel);font-weight:600;}
+  table.seg-table td.dwgref{color:var(--ink-faint);font-style:italic;}
+
+  /* ================= Data Manager (Spec Consistency Viewer style) ================= */
+  #tab-datamanager{background:#0a121c;padding:12px;}
+  .dm-root{--dm-ink:#182029;--dm-ink-soft:#5b6572;--dm-paper:#eef2f0;--dm-paper-alt:#e2e8e5;--dm-panel:#0f1d2c;--dm-panel-ink:#dbe4e6;--dm-line:#c7d0cb;--dm-accent:#2f6f63;
+    color:var(--dm-ink);background:var(--dm-panel);border-radius:4px;overflow:hidden;display:flex;flex-direction:column;width:100%;height:100%;border:1px solid #223247;position:relative;font-family:var(--mono);}
+  .dm-head{display:flex;align-items:center;gap:14px;padding:10px 16px;background:var(--dm-panel);color:var(--dm-panel-ink);border-bottom:1px solid #223247;flex-wrap:wrap;flex-shrink:0;}
+  .dm-title{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;color:#fff;white-space:nowrap;}
+  .dm-sub{font-size:11px;color:#93a3ad;margin-top:2px;}
+  .dm-search{margin-left:auto;font-family:var(--mono);font-size:12px;padding:6px 9px;border:1px solid #3a4f60;border-radius:3px;background:#101f2e;color:#eaf0ee;min-width:220px;}
+  .dm-search::placeholder{color:#5c7180;}
+
+  .dm-body{flex:1;display:flex;min-height:0;}
+  .dm-sheetbar{width:230px;flex-shrink:0;background:#0c1622;display:flex;flex-direction:column;min-height:0;}
+  .dm-sheetbar-tools{display:flex;flex-wrap:wrap;gap:4px;padding:8px;border-bottom:1px solid #223247;flex-shrink:0;}
+  .dm-sheetbar-tools button{flex:1 1 calc(50% - 4px);font-family:'Space Grotesk',sans-serif;font-size:10px;font-weight:600;padding:5px 3px;border-radius:3px;border:1px solid #3a4f60;background:#1c3348;color:#eaf0ee;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .dm-sheetbar-tools button:hover{border-color:var(--dm-accent);}
+  .dm-sheetbar-scroll{flex:1;overflow-y:auto;min-height:0;}
+  .dm-sheetbar-inner{display:flex;flex-direction:column;padding:8px;}
+  .dm-resize-handle{width:5px;flex-shrink:0;cursor:col-resize;background:#152232;}
+  .dm-resize-handle:hover,.dm-resize-handle.active{background:var(--dm-accent);}
+
+  .dm-group{margin-bottom:2px;}
+  .dm-group-head{width:100%;display:flex;align-items:center;gap:6px;background:#132131;border:none;color:#c7d3d6;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11.5px;padding:8px;cursor:pointer;border-radius:3px;}
+  .dm-group-head:hover{background:#182a3c;}
+  .dm-group-head .chev{font-size:9px;width:10px;flex-shrink:0;color:#6f8b98;}
+  .dm-group-head .grp-name{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .dm-group-head .grp-cnt{font-family:var(--mono);font-size:11px;color:#8aa0ab;flex-shrink:0;}
+  .dm-group-body{display:flex;flex-direction:column;gap:2px;padding-left:20px;margin:2px 0 6px 10px;border-left:1px solid #223247;}
+
+  .dm-sheet-btn{display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:600;padding:7px 9px;border-radius:3px;border:1px solid transparent;background:transparent;color:#8fa0aa;cursor:pointer;overflow:hidden;width:100%;}
+  .dm-sheet-btn span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .dm-sheet-btn:hover{background:#16283a;color:#fff;}
+  .dm-sheet-btn.active{background:#16283a;color:#fff;border-color:var(--dm-accent);}
+  .dm-sheet-btn .cnt{font-family:var(--mono);font-size:11px;color:#6f8b98;flex-shrink:0;}
+  .dm-sheet-btn .star{color:#e8a13a;margin-right:3px;}
+
+  .dm-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;}
+  .dm-toolbar{display:flex;align-items:center;gap:16px;padding:8px 16px;background:#182634;border-bottom:1px solid #223247;color:#c8d3d6;font-size:11.5px;flex-wrap:wrap;flex-shrink:0;}
+  .dm-toolbar-group{display:flex;align-items:center;gap:6px;}
+  .dm-stepbtn{width:20px;height:20px;border-radius:3px;border:1px solid #3a4f60;background:#1c3348;color:#eaf0ee;cursor:pointer;font-family:'Space Grotesk',sans-serif;font-weight:700;line-height:1;}
+  .dm-stepbtn:hover{border-color:var(--dm-accent);}
+  .dm-toolbar-btn{font-family:'Space Grotesk',sans-serif;font-size:11.5px;font-weight:600;border:1px solid #3a4f60;background:#1c3348;color:#eaf0ee;padding:5px 10px;border-radius:3px;cursor:pointer;}
+  .dm-toolbar-btn:hover{border-color:var(--dm-accent);}
+  .dm-toolbar-btn.on{background:var(--dm-accent);border-color:var(--dm-accent);}
+  .dm-note{color:#93a3ad;font-size:10.5px;margin-left:auto;}
+
+  .dm-tablewrap{flex:1;overflow:auto;position:relative;background:var(--dm-paper);}
+  table.dm-table{border-collapse:collapse;font-size:12px;width:max-content;min-width:100%;}
+  table.dm-table th{position:sticky;top:0;background:var(--dm-paper-alt);color:var(--dm-ink);font-family:'Space Grotesk',sans-serif;font-weight:600;text-align:left;padding:8px 12px;border-bottom:1px solid var(--dm-line);border-right:1px solid var(--dm-line);z-index:2;font-size:11.5px;cursor:pointer;user-select:none;white-space:nowrap;}
+  table.dm-table th:hover{background:#d7ded9;}
+  table.dm-table th.rownum-h{position:sticky;left:0;top:0;z-index:3;min-width:34px;text-align:center;cursor:default;}
+  .dm-col-resize{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;}
+  .dm-col-resize:hover,.dm-col-resize.active{background:rgba(47,111,99,0.35);}
+  .dm-sort-ind{font-size:9px;margin-left:4px;opacity:.75;}
+  td.dm-rownum{position:sticky;left:0;background:var(--dm-paper-alt);color:var(--dm-ink-soft);text-align:center;border-right:1px solid var(--dm-line);border-bottom:1px solid var(--dm-line);font-size:11px;z-index:1;}
+  td.dm-cell{padding:6px 12px;border-bottom:1px solid var(--dm-line);border-right:1px solid var(--dm-line);white-space:pre;cursor:default;max-width:320px;overflow:hidden;text-overflow:ellipsis;}
+  tr:hover td.dm-cell{background:#f5f8f6;}
+  .dm-empty-note{padding:30px;color:#7c8f97;font-size:12.5px;text-align:center;}
+
+  /* ---------- Print ---------- */
+  @media print{
+    #page-nav, .tb-actions, #btn-print, .ll-toolbar .btn, #tab-datamanager, #dropzone{display:none !important;}
+    header.titleblock{background:#fff !important;color:#000 !important;border-bottom:2px solid #000;}
+    .tb-title h1, .tb-title .sub, .tb-field label, .tb-field input{color:#000 !important;}
+    .tb-field input{border-bottom:1px solid #999;}
+    body{background:#fff;}
+    #app{height:auto;}
+    .ll-tablewrap{overflow:visible;}
+    table.ll-table th{position:static;background:#eee !important;color:#000 !important;}
+    tr.ll-row.flagged td.llc{background:#fdf1da !important;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="titleblock" id="titleblock"></header>
+  <div id="page-nav"></div>
+
+  <div id="tab-linelist" class="tabpanel active">
+    <div class="ll-toolbar" id="ll-toolbar" style="display:none;"></div>
+    <div class="ll-body" id="ll-body" style="display:none;">
+      <div class="ll-main">
+        <div class="ll-tablewrap scroll" id="ll-tablewrap">
+          <table class="ll-table" id="ll-table">
+            <thead id="ll-thead"></thead>
+            <tbody id="ll-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="ll-resize-handle" id="ll-resize-handle"></div>
+      <div class="ll-aside" id="ll-aside">
+        <div class="ll-aside-head"><div class="lt">Line Review</div><div class="ltag" id="ll-aside-tag">No line selected</div></div>
+        <div class="ll-aside-body scroll" id="ll-aside-body"></div>
+      </div>
+    </div>
+    <div id="dropzone" style="display:flex;">
+      <div id="dropzone-inner">
+        <div style="font-size:26px;color:var(--line-strong);">&#8593;</div>
+        <div id="dropzone-title">Load a Plant 3D "Export to Excel" workbook</div>
+        <div id="dropzone-sub">
+          Drop the .xlsx file here, or choose one below. This reads the <b>Pipe Line Segments</b>
+          (or Primary/Secondary Line Segment) sheet when present &mdash; groups every segment by
+          line number, ignores drawing-to-drawing continuation references as endpoints, and
+          consolidates multi-drawing lines into a single row, starting drawing first. If the
+          workbook only has a <b>Pipe Line Group (Traced)</b> export instead &mdash; Plant 3D's
+          own already-traced, one-row-per-line report &mdash; that's read directly, without the
+          per-drawing breakdown. Nothing is uploaded anywhere; it's read entirely in your browser.
+        </div>
+        <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none">
+        <button class="btn btn-primary" id="dropzone-choose">Choose File</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-datamanager" class="tabpanel">
+    <div class="dm-root" id="dm-root">
+      <div class="dm-head">
+        <div>
+          <div class="dm-title">Data Manager</div>
+          <div class="dm-sub" id="dm-sub">Browse the full Plant 3D export by category</div>
+        </div>
+        <input type="text" class="dm-search" id="dm-search" placeholder="Filter rows in current sheet&hellip;">
+      </div>
+      <div class="dm-body">
+        <div class="dm-sheetbar" id="dm-sheetbar">
+          <div class="dm-sheetbar-tools">
+            <button data-action="dm-collapse-all">Collapse All</button>
+            <button data-action="dm-expand-all">Expand All</button>
+            <button data-action="dm-hide-empty-sheets">Hide Empty Sheets</button>
+            <button data-action="dm-show-all-sheets">Show All Sheets</button>
+          </div>
+          <div class="dm-sheetbar-scroll scroll"><div class="dm-sheetbar-inner" id="dm-sheetbar-inner"></div></div>
+        </div>
+        <div class="dm-resize-handle" id="dm-resize-handle"></div>
+        <div class="dm-main">
+          <div class="dm-toolbar" id="dm-toolbar">
+            <div class="dm-toolbar-group">
+              <span>Header row</span>
+              <button class="dm-stepbtn" data-action="dm-header-dec">&minus;</button>
+              <span id="dm-header-row-label">1</span>
+              <button class="dm-stepbtn" data-action="dm-header-inc">+</button>
+            </div>
+            <button class="dm-toolbar-btn" id="dm-hide-empty-btn" data-action="dm-toggle-hide-empty">Hide empty columns</button>
+            <button class="dm-toolbar-btn" data-action="dm-reset-widths">Reset Column Widths</button>
+            <span class="dm-note">Click a column header to sort (size-aware) &middot; drag its right edge to resize.</span>
+          </div>
+          <div class="dm-tablewrap scroll" id="dm-tablewrap">
+            <table class="dm-table" id="dm-table">
+              <colgroup id="dm-colgroup"></colgroup>
+              <thead id="dm-thead"></thead>
+              <tbody id="dm-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   State
+   ============================================================ */
+var state = {
+  workbook: null,          // { sheetNames:[...], sheets:{ name:{aoa:[[...]]} } }
+  fileName: null,
+  lineListMeta: null,
+  lineRows: [],             // consolidated line list (main + branch rows)
+  overrides: {},            // row.key -> {from, to}
+  project: { projectName:"", projectNo:"", drawingSet:"", preparedBy:"", reviewDate:"", revision:"" },
+  exports: {
+    lineList: { version:0, history:[] },
+    actionReport: { version:0, history:[] }
+  },
+  ll: {
+    search:"", service:"", spec:"", area:"",
+    onlyOutstanding:false, hideIgnored:false, hideEmptyCols:false, hideBranches:false,
+    ignored:{},              // row.key -> true
+    sort:{key:"lineNo", dir:1},
+    selectedLine:null,       // row.key
+    asideWidth:330
+  },
+  dm: {
+    activeSheet:null,
+    headerRowBySheet:{},
+    hideEmptyColumns:false,
+    hideEmptySheets:false,
+    collapsedGroups:new Set(),
+    search:"",
+    sort:{}, // sheet -> {col,dir}
+    colWidths:{}, // sheet -> {col:px}
+    sheetbarWidth:230
+  }
+};
+
+/* ============================================================
+   Generic helpers
+   ============================================================ */
+function escapeHtml(str){
+  return String(str==null?"":str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+function cleanVal(v){
+  if(v===null||v===undefined) return null;
+  var s = String(v).trim();
+  if(s===""||s==="?"||s==="###") return null;
+  return s;
+}
+function naturalCompare(a,b){
+  a = (a===null||a===undefined) ? "" : String(a);
+  b = (b===null||b===undefined) ? "" : String(b);
+  var ax = a.match(/(\d+(\.\d+)?|\D+)/g) || [];
+  var bx = b.match(/(\d+(\.\d+)?|\D+)/g) || [];
+  var len = Math.max(ax.length,bx.length);
+  for(var i=0;i<len;i++){
+    var av = ax[i]!==undefined?ax[i]:"";
+    var bv = bx[i]!==undefined?bx[i]:"";
+    var an = parseFloat(av), bn = parseFloat(bv);
+    var aIsNum = !isNaN(an) && /^[\d.]+$/.test(av.trim());
+    var bIsNum = !isNaN(bn) && /^[\d.]+$/.test(bv.trim());
+    if(aIsNum && bIsNum){ if(an!==bn) return an-bn; }
+    else { if(av!==bv) return av<bv?-1:1; }
+  }
+  return 0;
+}
+function download(filenameFallback, wb){
+  XLSX.writeFile(wb, filenameFallback);
+}
+
+/* ============================================================
+   File loading
+   ============================================================ */
+function handleFile(file){
+  var reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      var wbRaw = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
+      var wb = { sheetNames: wbRaw.SheetNames, sheets:{} };
+      wbRaw.SheetNames.forEach(function(name){
+        var ws = wbRaw.Sheets[name];
+        var aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:null, raw:true});
+        wb.sheets[name] = { aoa: aoa };
+      });
+      state.workbook = wb;
+      state.fileName = file.name;
+      state.dm.headerRowBySheet = {};
+      state.dm.activeSheet = wb.sheetNames[0];
+      var res = buildLineList(wb);
+      state.lineRows = res.rows;
+      state.lineListMeta = res.meta;
+      state.overrides = {};
+      state.ll.ignored = {};
+      state.ll.selectedLine = null;
+      // A traced/group-level export carries far fewer populated columns
+      // than a full segment export, so default to hiding empty ones.
+      state.ll.hideEmptyCols = !!(res.meta && res.meta.hasDrawingInfo===false);
+      state.exports = { lineList: { version:0, history:[] }, actionReport: { version:0, history:[] } };
+      renderAll();
+    }catch(err){
+      alert("Couldn't read this file. Please choose a Plant 3D \"Export to Excel\" workbook (.xlsx).\n\n(" + err.message + ")");
+    }
+  };
+  reader.onerror = function(){ alert("Couldn't read this file from disk. Please try again."); };
+  reader.readAsArrayBuffer(file);
+}
+
+/* ============================================================
+   Line List consolidation
+   ------------------------------------------------------------
+   - Groups every segment by its Sequence Number (the Plant 3D
+     "line number"). Multiple drawings sharing that number are
+     consolidated into ONE row.
+   - A From/To value is excluded from being treated as a real
+     endpoint when it is (a) itself a drawing number in this
+     workbook (a continuation reference, not a destination), or
+     (b) the full Tag of any segment already in this line's own
+     group (a self-referential / internal link between two
+     segments of the same physical line, e.g. either side of a
+     reducer or spec break) - it is never treated as "the same
+     line number tag" pointing outward.
+   - Any segment whose From or To contains "drain" is pulled out
+     of the parent line's candidate pool entirely and reported as
+     its own separate line-list row (a branch), rather than being
+     folded in as an ambiguous extra endpoint on the main line.
+   ============================================================ */
+var COL_ALIASES = {
+  dwg: ["dwg number","drawing number","drawing"],
+  tag: ["tag"],
+  to: ["to"],
+  from: ["from"],
+  lineNo: ["sequence number","line no.","line no","line number"],
+  service: ["service"],
+  size: ["line size","size"],
+  spec: ["spec"],
+  area: ["area","area description"],
+  insulationCode: ["insulation code"],
+  insulationReq: ["insulation requirment","insulation requirement"],
+  aboveGround: ["above ground or buried"],
+  designPressure: ["design pressure"],
+  designTemp: ["design temperature"],
+  opPressure: ["operating pressure"],
+  opTemp: ["operating temperature"],
+  pwht: ["pwht"],
+  testPressure: ["test pressure (kpa)","test pressure"],
+  testFluid: ["testing fluid"],
+  tracing: ["tracing"],
+  paintCode: ["paint code"],
+  status: ["status"],
+  material: ["material / specification","material/specification","material"],
+  rev: ["rev"],
+  testingReq: ["testing requirements"],
+  description: ["description"]
+};
+var LL_META_KEYS = ["dwg","tag","to","from","lineNo"];
+
+var LL_COLUMNS = [
+  {key:"lineNo", label:"Line Tag"},
+  {key:"from", label:"From", editable:true},
+  {key:"to", label:"To", editable:true},
+  {key:"service", label:"Service"},
+  {key:"size", label:"Size"},
+  {key:"spec", label:"Spec"},
+  {key:"area", label:"Area"},
+  {key:"insulationCode", label:"Insul. Code"},
+  {key:"insulationReq", label:"Insul. Req."},
+  {key:"aboveGround", label:"Above Grd / Buried"},
+  {key:"designPressure", label:"Design Press."},
+  {key:"designTemp", label:"Design Temp."},
+  {key:"opPressure", label:"Op. Press."},
+  {key:"opTemp", label:"Op. Temp."},
+  {key:"pwht", label:"PWHT"},
+  {key:"testPressure", label:"Test Press."},
+  {key:"testFluid", label:"Test Fluid"},
+  {key:"tracing", label:"Tracing"},
+  {key:"paintCode", label:"Paint Code"},
+  {key:"status", label:"Status"},
+  {key:"material", label:"Material"},
+  {key:"rev", label:"Rev"},
+  {key:"testingReq", label:"Testing Req."},
+  {key:"description", label:"Description"},
+  {key:"drawingsDisplay", label:"Drawings (start \u2192 \u2026)", noSort:true},
+  {key:"drawingCount", label:"# Dwgs"}
+];
+
+function findHeaderIndex(header, aliases){
+  for(var i=0;i<header.length;i++){
+    var h = header[i];
+    if(h===null||h===undefined) continue;
+    var norm = String(h).trim().toLowerCase();
+    for(var j=0;j<aliases.length;j++){ if(norm===aliases[j]) return i; }
+  }
+  return -1;
+}
+
+function getLineSegmentRows(wb){
+  var names = wb.sheetNames;
+  var exact = names.filter(function(n){ return n.trim().toLowerCase()==="pipe line segments"; })[0];
+  if(exact) return { header: wb.sheets[exact].aoa[0]||[], rows: wb.sheets[exact].aoa.slice(1), sourceSheets:[exact] };
+  var matches = names.filter(function(n){ return /line segment/i.test(n) && !/signal/i.test(n); });
+  if(matches.length===0) return null;
+  var header = wb.sheets[matches[0]].aoa[0]||[];
+  var rows = [];
+  matches.forEach(function(n){
+    var aoa = wb.sheets[n].aoa;
+    for(var i=1;i<aoa.length;i++) rows.push(aoa[i]);
+  });
+  return { header: header, rows: rows, sourceSheets: matches };
+}
+
+// "Pipe Line Group Traced" (and similar "Pipe Line Group" reports) are
+// Plant 3D's own already-traced line list: one row per physical line
+// (Tag, Sequence Number, Area, Line Size, Service, Spec, From, To), with
+// no DWG Number / per-drawing breakdown at all — unlike the richer
+// "Pipe Line Segments" sheet, which is still preferred when present.
+function getTracedGroupRows(wb){
+  var names = wb.sheetNames;
+  var exact = names.filter(function(n){ var t=n.trim().toLowerCase(); return t==="pipe line group traced" || t==="pipe line group"; })[0];
+  if(exact) return { header: wb.sheets[exact].aoa[0]||[], rows: wb.sheets[exact].aoa.slice(1), sourceSheets:[exact] };
+  var matches = names.filter(function(n){ return /pipe line group/i.test(n); });
+  if(matches.length===0) return null;
+  var header = wb.sheets[matches[0]].aoa[0]||[];
+  var rows = [];
+  matches.forEach(function(n){
+    var aoa = wb.sheets[n].aoa;
+    for(var i=1;i<aoa.length;i++) rows.push(aoa[i]);
+  });
+  return { header: header, rows: rows, sourceSheets: matches };
+}
+
+function resolveGroup(seqKey, items, branchSuffix, allDwgs){
+  if(items.length===0) return null;
+  var dwgs = [];
+  items.forEach(function(i){ if(i.dwg && dwgs.indexOf(i.dwg)===-1) dwgs.push(i.dwg); });
+  function isDwgRef(v){ return v && allDwgs[v]; }
+  var groupTagSet = {};
+  items.forEach(function(i){ if(i.tag) groupTagSet[i.tag]=true; });
+  function isGroupSelfRef(v){ return v && groupTagSet[v]; }
+
+  var fromCandDwg = {}, toCandDwg = {}, fromVals = {}, toVals = {};
+  items.forEach(function(i){
+    if(i.from && !isDwgRef(i.from) && !isGroupSelfRef(i.from)){ fromVals[i.from]=true; if(!(i.from in fromCandDwg)) fromCandDwg[i.from]=i.dwg; }
+    if(i.to && !isDwgRef(i.to) && !isGroupSelfRef(i.to)){ toVals[i.to]=true; if(!(i.to in toCandDwg)) toCandDwg[i.to]=i.dwg; }
+  });
+  var startCands = Object.keys(fromVals).filter(function(v){ return !toVals[v]; }).sort(naturalCompare);
+  var endCands = Object.keys(toVals).filter(function(v){ return !fromVals[v]; }).sort(naturalCompare);
+
+  var flagged=false, flagReasons=[];
+  var lineFrom, startDwg=null;
+  if(startCands.length===1){ lineFrom=startCands[0]; startDwg=fromCandDwg[lineFrom]; }
+  else if(startCands.length>1){ lineFrom=startCands.join(" / "); startDwg=fromCandDwg[startCands[0]]; flagged=true; flagReasons.push(startCands.length+" possible start points"); }
+  else { lineFrom=""; flagged=true; flagReasons.push("no start point resolved"); }
+
+  var lineTo, toDwg=null;
+  if(endCands.length===1){ lineTo=endCands[0]; toDwg=toCandDwg[lineTo]; }
+  else if(endCands.length>1){ lineTo=endCands.join(" / "); flagged=true; flagReasons.push(endCands.length+" possible end points"); }
+  else { lineTo=""; flagged=true; flagReasons.push("no end point resolved"); }
+
+  var orderedDwgs;
+  if(startDwg && dwgs.indexOf(startDwg)!==-1){
+    orderedDwgs = [startDwg].concat(dwgs.filter(function(d){return d!==startDwg;}).sort(naturalCompare));
+  } else {
+    orderedDwgs = dwgs.slice().sort(naturalCompare);
+    if(dwgs.length>1){ flagged=true; flagReasons.push("starting drawing undetermined"); }
+  }
+
+  var repTag = null;
+  items.forEach(function(i){ if(!repTag && i.tag && !/\?/.test(i.tag) && i.dwg===startDwg) repTag=i.tag; });
+  if(!repTag) items.forEach(function(i){ if(!repTag && i.tag && !/\?/.test(i.tag)) repTag=i.tag; });
+  if(!repTag) items.forEach(function(i){ if(!repTag && i.tag) repTag=i.tag; });
+  if(!repTag) repTag = seqKey;
+
+  function collectField(key){
+    var vals=[];
+    items.forEach(function(i){ if(i[key] && vals.indexOf(i[key])===-1) vals.push(i[key]); });
+    return vals.join(" / ");
+  }
+
+  var row = { key: seqKey+(branchSuffix||""), seqKey: seqKey, lineTag: repTag,
+    drawings:orderedDwgs, drawingCount:orderedDwgs.length,
+    flagged:flagged, flagReasons:flagReasons, startCands:startCands, endCands:endCands,
+    startDwg:startDwg, toDwg:toDwg, fromCandDwg:fromCandDwg, toCandDwg:toCandDwg,
+    segments:items, isBranch: !!branchSuffix };
+  Object.keys(COL_ALIASES).forEach(function(k){
+    if(LL_META_KEYS.indexOf(k)>=0) return;
+    row[k] = collectField(k);
+  });
+  row.from = lineFrom; row.to = lineTo;
+  return row;
+}
+
+function buildLineList(wb){
+  // The richer per-segment/per-drawing sheet is preferred when present
+  // (it carries drawing lists, insulation, pressures, etc.); the flatter
+  // already-traced "Pipe Line Group" report is the fallback, and doesn't
+  // require (or have) a DWG Number column.
+  var src = getLineSegmentRows(wb);
+  var requireDwg = true;
+  if(!src){
+    src = getTracedGroupRows(wb);
+    requireDwg = false;
+  }
+  if(!src) return { rows: [], meta: { error: "No \u201cPipe Line Segments\u201d, \u201cPrimary/Secondary Line Segment\u201d, or \u201cPipe Line Group (Traced)\u201d sheet was found in this workbook." } };
+  var header = src.header;
+  var idx = {};
+  Object.keys(COL_ALIASES).forEach(function(k){ idx[k] = findHeaderIndex(header, COL_ALIASES[k]); });
+  if(idx.lineNo===-1 || (requireDwg && idx.dwg===-1)){
+    return { rows: [], meta: { error: "Could not find Line Number"+(requireDwg?" / DWG Number":"")+" columns on the \u201c" + src.sourceSheets.join(", ") + "\u201d sheet." } };
+  }
+  var hasDrawingInfo = idx.dwg !== -1;
+
+  var allDwgs = {};
+  src.rows.forEach(function(r){ var d=cleanVal(r[idx.dwg]); if(d) allDwgs[d]=true; });
+
+  var recs = [];
+  src.rows.forEach(function(r){
+    var seq = cleanVal(r[idx.lineNo]);
+    if(!seq) return;
+    if(idx.status!==-1){
+      var sv = cleanVal(r[idx.status]);
+      if(sv && sv.toLowerCase()==="non-reportable") return;
+    }
+    var to = idx.to!==-1?cleanVal(r[idx.to]):null;
+    var from = idx.from!==-1?cleanVal(r[idx.from]):null;
+    var isDrain = !!((to && /drain/i.test(to)) || (from && /drain/i.test(from)));
+    var rec = { lineNo: seq, dwg: cleanVal(r[idx.dwg]),
+      tag: idx.tag!==-1?cleanVal(r[idx.tag]):null,
+      to: to, from: from, isDrain: isDrain };
+    Object.keys(COL_ALIASES).forEach(function(k){
+      if(LL_META_KEYS.indexOf(k)>=0) return;
+      rec[k] = idx[k]!==-1 ? cleanVal(r[idx[k]]) : null;
+    });
+    recs.push(rec);
+  });
+
+  var groups = {};
+  recs.forEach(function(r){
+    if(!groups[r.lineNo]) groups[r.lineNo] = { main:[], drain:[] };
+    (r.isDrain ? groups[r.lineNo].drain : groups[r.lineNo].main).push(r);
+  });
+
+  var lineRows = [];
+  Object.keys(groups).forEach(function(seqKey){
+    var g = groups[seqKey];
+    var mainRow = resolveGroup(seqKey, g.main, "", allDwgs);
+    if(mainRow) lineRows.push(mainRow);
+    g.drain.forEach(function(seg, i){
+      var row = resolveGroup(seqKey, [seg], "-D"+(i+1), allDwgs);
+      if(row) lineRows.push(row);
+    });
+  });
+
+  lineRows.sort(function(a,b){
+    var c = naturalCompare(a.seqKey,b.seqKey);
+    if(c!==0) return c;
+    var av = a.isBranch?1:0, bv = b.isBranch?1:0;
+    if(av!==bv) return av-bv;
+    return naturalCompare(a.key,b.key);
+  });
+  return { rows: lineRows, meta: { sourceSheets: src.sourceSheets, totalSegments: src.rows.length, reportableSegments: recs.length, hasDrawingInfo: hasDrawingInfo } };
+}
+
+/* ============================================================
+   Data Manager: sheet categorisation (Spec Consistency Viewer pattern)
+   ============================================================ */
+var DM_CATEGORY_ORDER = ["Lines","Valves","Instruments","Nozzles","Fittings & Specialties","Tanks & Vessels","Equipment","Other"];
+var DM_CATEGORY_MATCHERS = {
+  "Lines": /line segment|line group|^lines$|signal line|instrument supply|mechanical link|^leader$/i,
+  "Valves": /valve/i,
+  "Instruments": /instrument|orifice|flow meter|\bdcs\b|pilot light|analyser|weightometer|weighing scale/i,
+  "Nozzles": /nozzle/i,
+  "Fittings & Specialties": /reducer|strainer|steam trap|spray|spool|damper|flexible hose|filter(?!.*(carbon|air))|expansion joint|hose connection|flange|^cap$|blind flange|fitting|specialty|speciality/i,
+  "Tanks & Vessels": /tank|vessel|sphere|\bbin\b|hopper|receiver/i,
+  "Equipment": /pump|mixer|agitator|motor|driver|drive|heat exchanger|exchanger|separator|screen|cyclone|drier|dryer|grinder|crusher|feeder|conveyor|compressor|blower|skid|package|chute|cctv|bulk bag|^equipment$|engineering items|misc/i
+};
+function categorize(name){
+  for(var i=0;i<DM_CATEGORY_ORDER.length;i++){
+    var cat = DM_CATEGORY_ORDER[i];
+    if(cat==="Other") continue;
+    if(DM_CATEGORY_MATCHERS[cat].test(name)) return cat;
+  }
+  return "Other";
+}
+
+function sheetRowCount(name){
+  var aoa = state.workbook.sheets[name].aoa;
+  var headerRow = state.dm.headerRowBySheet[name]||0;
+  var count=0;
+  for(var i=headerRow+1;i<aoa.length;i++){
+    var row = aoa[i];
+    if(row && row.some(function(c){ return c!==null && c!==undefined && String(c).trim()!==""; })) count++;
+  }
+  return count;
+}
+
+/* ============================================================
+   Render: Title block
+   ============================================================ */
+var LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAA6IAAACGCAMAAADw88cIAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAAZQTFRF////////VXz1bAAAAAJ0Uk5T/wDltzBKAAAH4klEQVR42uzd3brbKAyFYen+b3oO5plOd5vYIC0JG7512AZvR/D6l9jmhJAHx+It/83Pf6GghDyAqP2WD/9MVQlZR9T+yL1cQkgXUfs73/+X4hLSStQ+5vID1JeQLqJmAaIgJaSHqFmQKEoJqSdqliGKUUJKiZoliYKUkEKiJiAKUkKKiJppiIKUkAKiZjqiGCVETdSkRDFKiJaoiYmClBAhUTM9UYwSoiJqJUQxSoiGqBURxSghCqJWRhSkhOSJWiVRjBKSJGq1RDFKSIqoVRPFKCEJohYkahAlpIGoNRDFKCFRomGh4eNjQsjziGKUkBBR6yKKUUICRPuEYpSQeaIGUUJ2IprijVFCJon2Cj3NKNsnkiWaAgZRiJJHEfW80MPGKURJkmhGkUEUoqSYaIaQWYFRSwSi0fVi8/omol4u1KyI6BPH0GZEUdpNNFF/eybRpw2h/YiidCVRSRePjIBKos8aQVsSxWgbUbHQ8XFQS9QgWkwUo2uI5vp3bijUEjWIFhPFaA9R4S40vcOFKETJJdEqoLMtbDOjuxLFaDfRgkPc62YQhSi5IyoCExsRxUQNosVEMdpKNNGF4TFxCNHHDgEq/HyiF9Uu6SeIQpQEibYIHTzmgyhEyZ9E451XcF4mmy9ML49XTHrB78fHKXQB0crtaBnR0XPdrtnDE5ulu6WMLPd6ObI6f17u3ezP+TrmDwAyrVWHHrnxY1VCZ/5fTPT+XDe13YkeBEanSP76/CDR2S8l+Pnh4JqIr0KmFtDRWPF4kiui4s3E1ddUE3XVRkxw5ja4UkN9NUQ011lKold/OX+qm1rAoiEQamzfzhb0O/LZ3WgV0bZjlAmiQ0saIjr/naqIjtciYrSvF4VDINT4G9HEdwh8Tk3UlQcauaufQ0RNt9zkd9IRvfq76UvG1tmLuiEQamx5oRNf4dsnG4nmxnMNUWsmauor55NE87d1ejtxIVGXEJ0p3nKiudEh7J7sjckXEpWtcf+ebOUBz/9EO4ROGa0gmsOwDVFbStSkG5WGTrSlWwcxUYMoRJ9N1M4mGq71k4laMVFbQNTeRtQWHudWDYFhosklTZduJVGD6HqiJl3hjpNJiK4jOjuBcKz95M3aoYVacqUWEf3xeVEnjPfCyBhdOARGf2CdPM5NzqlaSjSrKbNONj5b8e5zgwvQEh3aP/49G1zRCTNPq7w9j50ud8UQgGiWqDUS9brtxlB7JdHsOFVsKG+IFnZXKdHqA+2HEPVn9M+2RAMzv/QrbOG5VOVDwN9B1F9M1JuJZr+UkqgtJGq6XjiBqENUSrTvS6XqbAcQ9ZOJDh7pnnigu5xo6paEmKhDFKLr+geixxO1dqJ2HFGD6OlEU0PA4kQdomP9M3RwAdGdiWaGwGDjg4kG1jc+7Wxnov5aomuHwOiGLzcBUEXU30E09Xt9iO5AVDgEBhvniDpEo9uwfYg6RCuQ/GpsqYcuHEe04PFibyfqhxFd8HgxEVE7g6hD9HSi3jx+zBPe/ECicaNbEg3c9ns90eYH6X4m6hC9+uMQ/fznTiHqnc+jTxEVCH0n0dhV7+2IBifPbEE0flk1cukmTO7lRL0qCaKlv1QpL8rriHYPgdhWJP5KFxcQtR2JOkRPJ6qcymtfH5XZIRSi6gejQPQgolMvwSs4zq147dITiWofL7YTUYPoX0QFb2fR7USPJZq63wrRo4h6tdAqogbRjYnOrbDkPXCrifr07Z/MheyP7bREpyf4rCXqEE0QLXsC4FOJZt+3LdyJCn7HCNHHE80/R3dgjV5G1K6J2vxfy0+FqiU6tH+tuyc28IPnk4kOPm431ourhkDqvqjNE51d4vxFpmVEc3thzeyi44l29OIjh8BMa+Fxc+hGTRtRfybRwfmWEJVv0d5J1KqEfm3qxxMdm8y1CVFf0otbEbUSoRdNa4m67pCykOjIZK6Tibov3Y1qhkBmBEfPoeNA3ZYQ9XVb0PsBPNVLLybqr+tFX0jU7etFJJXQ26ZeSjS/1DaiU3d1zyIqXcC7jnP/e+tjxOgEyMu2EM3NXXsfUc92YnIBexAdmVkV9Tkm1EuEtveP7qa57UPUs53ouWGwaAjEGltwj5gBOjgoaoRmuld5FnM2UU93Ym4Ja4ZArPH1mWwJ0NJr89HVL7pU4BAtuNSoWECbsvT4ub3YpD0HLb7uV7EVl51BJYmOdfx7iM4/fEe8BOseA9HrwEPt7z4kmMGqJCq9ZySZppEnavsRvSmqohflNyWaroL8aKbYZ5UIJdSN/E7UO4SmdJ/k8bZwFAmiPYeVdMD3SokuzpFtiAofAlxxDnvyUS2Fg6iOaNlJLESp2/FE8z8SckMoREkdUW8WykhDKGklitAeolToXKKO0BcQpUAnE80wM4i2EKU+ZxP1PqLUPkSU8kC06TiX0keIUhyIdv1Qi8rPI6UuEJ22Jtn9kgGnlAOiIWyCvS8hZJKoQ5SQRxP1aqKUnZAUUa8lStUJSRL1SqIUnZA0US8jSskJURD1opkLVJwQDVEvIUrBCVER9QKi1JsQHdG5Hy4ClJB2oi4lSrEJUROd+GEUQglZQdRFRKk0ITVER9+6AVBCFhEde1I1QglZRnTkN8YAJWQh0fs3sgCUkKVE715rhk9CFhP1q/fQ8vouQh5A9A+KV0QpLSFLiPqHdxNe0SWEdBP9RfIDUSpKiDT/CDAAoT9kN6VOzDMAAAAASUVORK5CYII=";
+
+function field(label, key, placeholder){
+  return '<div class="tb-field"><label>'+escapeHtml(label)+'</label>' +
+    '<input type="text" data-bind="'+key+'" value="'+escapeHtml(state.project[key]||"")+'" placeholder="'+escapeHtml(placeholder||"")+'"></div>';
+}
+function dateField(label, key){
+  return '<div class="tb-field"><label>'+escapeHtml(label)+'</label>' +
+    '<input type="date" data-bind="'+key+'" value="'+escapeHtml(state.project[key]||"")+'"></div>';
+}
+
+function rowStatus(row){
+  if(state.ll.ignored[row.key]) return "ignore";
+  var ov = state.overrides[row.key];
+  if(ov && (ov.from!==undefined || ov.to!==undefined)) return "fixed";
+  if(row.flagged) return "outstanding";
+  return "clean";
+}
+function statusCounts(){
+  var c = {outstanding:0, fixed:0, ignore:0, clean:0};
+  state.lineRows.forEach(function(r){ c[rowStatus(r)]++; });
+  return c;
+}
+
+function renderTitleblock(){
+  var el = document.getElementById("titleblock");
+  var counts = state.workbook ? statusCounts() : null;
+
+  var loadedChip = state.fileName
+    ? '<span class="progress-chip" title="'+escapeHtml(state.fileName)+'">Loaded: '+escapeHtml(state.fileName.length>30?state.fileName.slice(0,27)+"\u2026":state.fileName)+'</span>'
+    : "";
+  var countChip = counts
+    ? '<span class="progress-chip">'+state.lineRows.length+' lines</span>' +
+      (counts.outstanding>0 ? '<span class="progress-chip warn">'+counts.outstanding+' outstanding</span>' : '<span class="progress-chip">all resolved</span>')
+    : "";
+
+  el.innerHTML =
+    '<div class="tb-top">' +
+      '<div class="tb-title">' +
+        '<img class="logo" src="data:image/png;base64,'+LOGO_B64+'" alt="Design Process">' +
+        '<div><h1>Plant 3D Line List Generator</h1><span class="sub">Consolidated line list &middot; replaces native Plant 3D line-list reporting</span></div>' +
+      '</div>' +
+      '<div class="tb-actions">' +
+        loadedChip + countChip +
+        '<input type="file" id="file-input-2" accept=".xlsx,.xls" style="display:none">' +
+        '<button class="btn btn-ghost btn-sm" id="btn-load">'+(state.workbook?"Load Different File":"Load Workbook")+'</button>' +
+        '<button class="btn btn-ghost btn-sm" id="btn-print"'+(state.workbook?"":" disabled")+'>Print</button>' +
+        '<button class="btn btn-ghost btn-sm" id="btn-export-report"'+(state.workbook?"":" disabled")+'>Export Action Report (v'+(state.exports.actionReport.version+1)+')</button>' +
+        '<button class="btn btn-primary" id="btn-export"'+(state.workbook?"":" disabled")+'>Export Line List (v'+(state.exports.lineList.version+1)+')</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="tb-fields">' +
+      field("Project Name","projectName","Project name") +
+      field("Project No.","projectNo","e.g. CU01") +
+      field("Drawing Set","drawingSet","e.g. 12-PID series") +
+      field("Prepared By","preparedBy","Name") +
+      dateField("Date","reviewDate") +
+      field("Revision","revision","e.g. A") +
+      '<div class="tb-legend">'+
+        '<span class="progress-chip" title="Outstanding = needs review. Fixed = you\u2019ve corrected it. Ignored = deliberately excluded (e.g. incomplete placeholder tags).">OUTSTANDING / FIXED / IGNORE</span>'+
+      '</div>' +
+    '</div>';
+
+  var loadBtn = el.querySelector("#btn-load");
+  var fileInput2 = el.querySelector("#file-input-2");
+  loadBtn.addEventListener("click", function(){ fileInput2.click(); });
+  fileInput2.addEventListener("change", function(e){
+    if(e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+    fileInput2.value="";
+  });
+  var printBtn = el.querySelector("#btn-print");
+  if(printBtn && state.workbook) printBtn.addEventListener("click", function(){ window.print(); });
+  var exportBtn = el.querySelector("#btn-export");
+  if(exportBtn && state.workbook) exportBtn.addEventListener("click", exportLineList);
+  var exportReportBtn = el.querySelector("#btn-export-report");
+  if(exportReportBtn && state.workbook) exportReportBtn.addEventListener("click", exportActionReport);
+
+  ["projectName","projectNo","drawingSet","preparedBy","revision"].forEach(function(key){
+    var input = el.querySelector('[data-bind="'+key+'"]');
+    if(input) input.addEventListener("input", function(){ state.project[key]=input.value; });
+  });
+  var dateInput = el.querySelector('[data-bind="reviewDate"]');
+  if(dateInput) dateInput.addEventListener("change", function(){ state.project.reviewDate = dateInput.value; });
+}
+
+/* ============================================================
+   Render: Tabs
+   ============================================================ */
+var ACTIVE_TAB = "linelist";
+function renderTabs(){
+  var el = document.getElementById("page-nav");
+  var tabs = [{id:"linelist", label:"Line List"}, {id:"datamanager", label:"Data Manager"}];
+  el.innerHTML = tabs.map(function(t){
+    return '<button class="page-tab'+(ACTIVE_TAB===t.id?" active":"")+'" data-tab="'+t.id+'">'+escapeHtml(t.label)+'</button>';
+  }).join("");
+  Array.prototype.forEach.call(el.querySelectorAll(".page-tab"), function(b){
+    b.addEventListener("click", function(){
+      ACTIVE_TAB = b.getAttribute("data-tab");
+      renderTabs();
+      document.getElementById("tab-linelist").classList.toggle("active", ACTIVE_TAB==="linelist");
+      document.getElementById("tab-datamanager").classList.toggle("active", ACTIVE_TAB==="datamanager");
+      if(ACTIVE_TAB==="datamanager") renderDataManager();
+    });
+  });
+}
+
+/* ============================================================
+   Render: Line List tab
+   ============================================================ */
+function getFilteredLineRows(){
+  var q = state.ll.search.trim().toLowerCase();
+  return state.lineRows.filter(function(r){
+    var st = rowStatus(r);
+    if(state.ll.hideIgnored && st==="ignore") return false;
+    if(state.ll.hideBranches && r.isBranch) return false;
+    if(state.ll.onlyOutstanding && st!=="outstanding") return false;
+    if(state.ll.service && r.service!==state.ll.service) return false;
+    if(state.ll.spec && r.spec!==state.ll.spec) return false;
+    if(state.ll.area && r.area!==state.ll.area) return false;
+    if(q){
+      var hay = [r.lineTag, r.seqKey, r.service, r.from, r.to, r.spec, r.area, r.drawings.join(" ")].join(" ").toLowerCase();
+      if(hay.indexOf(q)===-1) return false;
+    }
+    return true;
+  });
+}
+function distinctValues(key){
+  var set = {};
+  state.lineRows.forEach(function(r){ if(r[key]) set[r[key]]=true; });
+  return Object.keys(set).sort(naturalCompare);
+}
+function displayVal(row, key){
+  if(key==="lineNo") return row.lineTag;
+  if(state.overrides[row.key] && (key==="from"||key==="to") && state.overrides[row.key][key]!==undefined){
+    return state.overrides[row.key][key];
+  }
+  if(key==="drawingsDisplay") return row.drawings.join(", ");
+  return row[key];
+}
+function isOverridden(row,key){
+  return !!(state.overrides[row.key] && state.overrides[row.key][key]!==undefined);
+}
+
+function renderLineListToolbar(){
+  var el = document.getElementById("ll-toolbar");
+  if(!state.workbook){ el.style.display="none"; return; }
+  el.style.display="flex";
+  var services = distinctValues("service");
+  var specs = distinctValues("spec");
+  var areas = distinctValues("area");
+  function opts(list, current){
+    return '<option value="">All</option>' + list.map(function(v){
+      return '<option value="'+escapeHtml(v)+'"'+(v===current?" selected":"")+'>'+escapeHtml(v)+'</option>';
+    }).join("");
+  }
+  var filteredCount = getFilteredLineRows().length;
+  var counts = statusCounts();
+  el.innerHTML =
+    '<div class="ll-field"><label>Search</label><input type="text" id="ll-search" placeholder="Line tag, from, to, drawing\u2026" value="'+escapeHtml(state.ll.search)+'"></div>' +
+    '<div class="ll-field"><label>Service</label><select id="ll-filter-service">'+opts(services,state.ll.service)+'</select></div>' +
+    '<div class="ll-field"><label>Spec</label><select id="ll-filter-spec">'+opts(specs,state.ll.spec)+'</select></div>' +
+    '<div class="ll-field"><label>Area</label><select id="ll-filter-area">'+opts(areas,state.ll.area)+'</select></div>' +
+    '<div class="tl-legend">'+
+      '<span><span class="tl-dot outstanding"></span>Outstanding '+counts.outstanding+'</span>'+
+      '<span><span class="tl-dot fixed"></span>Fixed '+counts.fixed+'</span>'+
+      '<span><span class="tl-dot ignore"></span>Ignored '+counts.ignore+'</span>'+
+    '</div>' +
+    '<label class="ll-check"><input type="checkbox" id="ll-only-outstanding"'+(state.ll.onlyOutstanding?" checked":"")+'> Only outstanding</label>' +
+    '<label class="ll-check"><input type="checkbox" id="ll-show-ignored"'+(!state.ll.hideIgnored?" checked":"")+'> Show ignored rows</label>' +
+    '<button class="btn btn-sm'+(state.ll.hideEmptyCols?" btn-toggle on":"")+'" id="ll-hide-empty">'+(state.ll.hideEmptyCols?"Show empty columns":"Hide empty columns")+'</button>' +
+    '<button class="btn btn-sm" id="ll-ignore-q" title="Ignore every line whose tag still contains a &quot;?&quot; placeholder">Ignore &quot;?&quot; Tags</button>' +
+    '<button class="btn btn-sm" id="ll-unignore-all">Unignore All</button>' +
+    '<button class="btn btn-sm" id="ll-undo-all-edits" title="Revert every edited From/To back to its original computed value">Undo All Edits</button>' +
+    '<button class="btn btn-sm'+(state.ll.hideBranches?" btn-toggle on":"")+'" id="ll-hide-branches" title="Hide branch rows (e.g. drain takeoffs) split out from their parent line">'+(state.ll.hideBranches?"Show Branches":"Hide Branches")+'</button>' +
+    '<button class="btn btn-sm" id="ll-reset-filters">Reset Filters</button>' +
+    '<div class="ll-spacer"></div>' +
+    '<div class="ll-count">'+filteredCount+' of '+state.lineRows.length+' lines shown</div>';
+
+  document.getElementById("ll-search").addEventListener("input", function(e){ state.ll.search=e.target.value; renderLineList(); });
+  document.getElementById("ll-filter-service").addEventListener("change", function(e){ state.ll.service=e.target.value; renderLineList(); });
+  document.getElementById("ll-filter-spec").addEventListener("change", function(e){ state.ll.spec=e.target.value; renderLineList(); });
+  document.getElementById("ll-filter-area").addEventListener("change", function(e){ state.ll.area=e.target.value; renderLineList(); });
+  document.getElementById("ll-only-outstanding").addEventListener("change", function(e){ state.ll.onlyOutstanding=e.target.checked; renderLineList(); });
+  document.getElementById("ll-show-ignored").addEventListener("change", function(e){ state.ll.hideIgnored=!e.target.checked; renderLineList(); });
+  document.getElementById("ll-hide-empty").addEventListener("click", function(){ state.ll.hideEmptyCols=!state.ll.hideEmptyCols; renderLineList(); });
+  document.getElementById("ll-ignore-q").addEventListener("click", function(){
+    state.lineRows.forEach(function(r){ if(/\?/.test(r.lineTag)) state.ll.ignored[r.key]=true; });
+    renderLineList();
+  });
+  document.getElementById("ll-unignore-all").addEventListener("click", function(){
+    state.ll.ignored = {};
+    renderLineList();
+  });
+  document.getElementById("ll-undo-all-edits").addEventListener("click", function(){
+    revertAllEdits();
+    renderLineList();
+  });
+  document.getElementById("ll-hide-branches").addEventListener("click", function(){ state.ll.hideBranches=!state.ll.hideBranches; renderLineList(); });
+  document.getElementById("ll-reset-filters").addEventListener("click", function(){
+    state.ll.search=""; state.ll.service=""; state.ll.spec=""; state.ll.area=""; state.ll.onlyOutstanding=false; state.ll.hideBranches=false;
+    renderLineList();
+  });
+}
+
+function columnIsEmpty(rows, key){
+  return !rows.some(function(r){ var v=displayVal(r,key); return v!==null && v!==undefined && String(v).trim()!==""; });
+}
+
+// Shared by the table render and both exports: a source workbook without
+// per-line drawing data (e.g. a "Pipe Line Group Traced" report, which has
+// already consolidated each line to one row and carries no DWG Number
+// column) has no meaningful Drawings/# Dwgs columns to show at all, so
+// those are suppressed outright rather than left to the empty-column toggle.
+function visibleLLColumns(rows){
+  var hasDwgInfo = !!(state.lineListMeta && state.lineListMeta.hasDrawingInfo);
+  return LL_COLUMNS.filter(function(c){
+    if((c.key==="drawingsDisplay" || c.key==="drawingCount") && !hasDwgInfo) return false;
+    if(!state.ll.hideEmptyCols) return true;
+    return !columnIsEmpty(rows, c.key);
+  });
+}
+
+function buildSuggestions(row){
+  var out = [];
+  row.flagReasons.forEach(function(reason){
+    if(/no start point resolved/.test(reason)){
+      out.push({title:"No start point found", text:"None of this line's segments have a usable From tag. Either the origin segment wasn't captured in this export, the From field was left blank in Plant 3D, or the true origin sits off the modelled drawings (e.g. an unmodelled tie-in). Check the P&ID for this line's actual source and enter it in the From field."});
+    } else if(/no end point resolved/.test(reason)){
+      out.push({title:"No end point found", text:"None of this line's segments have a usable To tag. This usually means the destination segment is missing from the export, or the To field wasn't populated in Plant 3D. Confirm the line's actual termination on the P&ID and enter it in the To field."});
+    } else if(/possible start points/.test(reason)){
+      var n = parseInt(reason,10);
+      out.push({title:n+" possible starting points", text:"This line has "+n+" tags that never appear as a destination elsewhere on the line, so the true origin can't be resolved automatically. Common causes: two sources feeding a shared line number (e.g. two pumps into a common header), a duplicated tag reference across drawings, or two unconnected pipe runs that were mistakenly given the same line number. Compare the candidates below against the P&ID and apply the correct one."});
+    } else if(/possible end points/.test(reason)){
+      var n2 = parseInt(reason,10);
+      out.push({title:n2+" possible end points", text:"This line has "+n2+" tags that never appear as a source elsewhere on the line (drain branches are already split out into their own rows, so this is a different kind of branch \u2014 e.g. a vent or hose connection). If that matches the P&ID, no action is needed; otherwise check for a mislabeled continuation, or a line number reused on an unrelated run."});
+    } else if(/starting drawing undetermined/.test(reason)){
+      out.push({title:"Starting drawing unclear", text:"This line spans multiple drawings but the starting drawing couldn't be identified, usually because the start point itself is ambiguous (see above). Once the correct From tag is confirmed, its drawing becomes the starting drawing \u2014 or reorder the drawing list manually if needed."});
+    } else {
+      out.push({title:"Needs review", text: reason});
+    }
+  });
+  return out;
+}
+
+function selectLine(key){
+  state.ll.selectedLine = key;
+  Array.prototype.forEach.call(document.querySelectorAll("#ll-tbody tr.ll-row"), function(tr){
+    tr.classList.toggle("selected", tr.getAttribute("data-rowkey")===key);
+  });
+  renderLineListAside();
+}
+
+function setIgnored(key, val){
+  if(val) state.ll.ignored[key] = true;
+  else delete state.ll.ignored[key];
+}
+function revertField(key, field){
+  if(state.overrides[key]){
+    delete state.overrides[key][field];
+    if(Object.keys(state.overrides[key]).length===0) delete state.overrides[key];
+  }
+}
+function revertRow(key){
+  delete state.overrides[key];
+}
+function revertAllEdits(){
+  state.overrides = {};
+}
+
+function renderLineListAside(){
+  var aside = document.getElementById("ll-aside");
+  if(!aside || aside.style.display==="none") return;
+  var tagEl = document.getElementById("ll-aside-tag");
+  var body = document.getElementById("ll-aside-body");
+  var key = state.ll.selectedLine;
+  var row = key ? state.lineRows.filter(function(r){return r.key===key;})[0] : null;
+  if(!row){
+    tagEl.textContent = "No line selected";
+    body.innerHTML = '<div class="ll-aside-placeholder">Click any line in the table to see its status, segment detail, and (for outstanding lines) a suggested cause and candidate values to choose from.</div>';
+    return;
+  }
+  tagEl.textContent = row.lineTag;
+  var st = rowStatus(row);
+  var html = "";
+
+  html += '<div class="ll-aside-section-title">Status</div>';
+  html += '<div class="ll-status-row"><span class="tl-dot '+st+'" style="cursor:default;"></span><span class="ll-status-label">'+st.charAt(0).toUpperCase()+st.slice(1)+'</span>' +
+    (row.isBranch?'<span class="branch-badge" style="margin-left:8px;">branch of line '+escapeHtml(row.seqKey)+'</span>':'') + '</div>';
+  html += '<div class="ll-aside-actions">' +
+    (st==="ignore"
+      ? '<button class="btn btn-sm" data-action="aside-unignore" data-rowkey="'+escapeHtml(row.key)+'">Restore (Un-ignore)</button>'
+      : '<button class="btn btn-sm" data-action="aside-ignore" data-rowkey="'+escapeHtml(row.key)+'">Ignore this line</button>') +
+    '</div>';
+
+  if(st==="outstanding"){
+    var suggestions = buildSuggestions(row);
+    html += '<div class="ll-aside-section-title">Suggested Cause</div>';
+    suggestions.forEach(function(s){
+      html += '<div class="ll-suggestion"><div class="sug-title">'+escapeHtml(s.title)+'</div><div class="sug-text">'+escapeHtml(s.text)+'</div></div>';
+    });
+    if(row.startCands.length>1){
+      html += '<div class="ll-candidates"><div class="cand-label">Candidate start points</div>';
+      row.startCands.forEach(function(c){
+        html += '<div class="ll-cand-row"><span title="'+escapeHtml(c)+'">'+escapeHtml(c)+'</span><button data-action="apply-cand" data-rowkey="'+escapeHtml(row.key)+'" data-field="from" data-val="'+escapeHtml(c)+'">Use as From</button></div>';
+      });
+      html += '</div>';
+    }
+    if(row.endCands.length>1){
+      html += '<div class="ll-candidates"><div class="cand-label">Candidate end points</div>';
+      row.endCands.forEach(function(c){
+        html += '<div class="ll-cand-row"><span title="'+escapeHtml(c)+'">'+escapeHtml(c)+'</span><button data-action="apply-cand" data-rowkey="'+escapeHtml(row.key)+'" data-field="to" data-val="'+escapeHtml(c)+'">Use as To</button></div>';
+      });
+      html += '</div>';
+    }
+  } else if(st==="fixed"){
+    html += '<div class="ll-aside-section-title">Edit History &mdash; What It Was Called</div>';
+    var ov = state.overrides[row.key]||{};
+    ["from","to"].forEach(function(f){
+      if(ov[f]!==undefined){
+        html += '<div class="ll-suggestion" style="border-color:#8fbf9e;background:var(--green-soft);">' +
+          '<div class="sug-title" style="color:#1e5c3a;">'+f.toUpperCase()+' changed</div>' +
+          '<div class="sug-text">Originally computed as: <b>'+escapeHtml(row[f]||"(blank)")+'</b><br>Now set to: <b>'+escapeHtml(ov[f]||"(blank)")+'</b></div>' +
+          '<div style="margin-top:8px;"><button class="btn btn-sm" data-action="revert-field" data-rowkey="'+escapeHtml(row.key)+'" data-field="'+f+'">Revert '+f.toUpperCase()+' to original</button></div>' +
+          '</div>';
+      }
+    });
+    html += '<div class="ll-aside-actions"><button class="btn btn-sm" data-action="revert-row" data-rowkey="'+escapeHtml(row.key)+'">Revert All Edits On This Line</button></div>';
+  } else if(st==="ignore"){
+    html += '<div class="ll-ok-box" style="background:#eceff1;border-color:#c7cdd2;color:var(--ink-soft);">This line is marked ignored and excluded from the outstanding count' +
+      (row.flagged ? " (it would otherwise be flagged: "+escapeHtml(row.flagReasons.join("; "))+")" : "") + '.</div>';
+  } else {
+    html += '<div class="ll-ok-box">No issues detected \u2014 the From and To endpoints resolved unambiguously from the source data.</div>';
+  }
+
+  var hasDwgInfoAside = !!(state.lineListMeta && state.lineListMeta.hasDrawingInfo);
+  html += '<div class="ll-aside-section-title">Contributing Segments ('+row.segments.length+')</div>';
+  html += '<table class="aside-seg-table"><thead><tr><th>'+(hasDwgInfoAside?"Drawing":"Area")+'</th><th>Tag</th><th>From</th><th>To</th></tr></thead><tbody>';
+  row.segments.forEach(function(s){
+    var locCol = hasDwgInfoAside ? (s.dwg||"") : (s.area||"");
+    html += '<tr><td>'+escapeHtml(locCol)+'</td><td>'+escapeHtml(s.tag||"")+'</td><td>'+escapeHtml(s.from||"")+'</td><td>'+escapeHtml(s.to||"")+'</td></tr>';
+  });
+  html += '</tbody></table>';
+  body.innerHTML = html;
+
+  Array.prototype.forEach.call(body.querySelectorAll('[data-action="apply-cand"]'), function(btn){
+    btn.addEventListener("click", function(){
+      var rk = btn.getAttribute("data-rowkey"), fld = btn.getAttribute("data-field"), val = btn.getAttribute("data-val");
+      if(!state.overrides[rk]) state.overrides[rk] = {};
+      state.overrides[rk][fld] = val;
+      renderLineListTable();
+    });
+  });
+  var ignBtn = body.querySelector('[data-action="aside-ignore"]');
+  if(ignBtn) ignBtn.addEventListener("click", function(){ setIgnored(ignBtn.getAttribute("data-rowkey"), true); renderLineListTable(); });
+  var unignBtn = body.querySelector('[data-action="aside-unignore"]');
+  if(unignBtn) unignBtn.addEventListener("click", function(){ setIgnored(unignBtn.getAttribute("data-rowkey"), false); renderLineListTable(); });
+  Array.prototype.forEach.call(body.querySelectorAll('[data-action="revert-field"]'), function(btn){
+    btn.addEventListener("click", function(){
+      revertField(btn.getAttribute("data-rowkey"), btn.getAttribute("data-field"));
+      renderLineListTable();
+    });
+  });
+  var revertRowBtn = body.querySelector('[data-action="revert-row"]');
+  if(revertRowBtn) revertRowBtn.addEventListener("click", function(){
+    revertRow(revertRowBtn.getAttribute("data-rowkey"));
+    renderLineListTable();
+  });
+}
+
+function renderLineListTable(){
+  var container = document.getElementById("ll-body");
+  var wrap = document.getElementById("ll-tablewrap");
+  var aside = document.getElementById("ll-aside");
+  if(!state.workbook){ container.style.display="none"; return; }
+  if(state.lineListMeta && state.lineListMeta.error){
+    container.style.display="flex";
+    aside.style.display="none";
+    wrap.innerHTML = '<div style="padding:30px;color:var(--rust);font-size:13px;">'+escapeHtml(state.lineListMeta.error)+'</div>';
+    return;
+  }
+  container.style.display="flex";
+  aside.style.display="flex";
+  aside.style.width = state.ll.asideWidth+"px";
+  wrap.innerHTML = '<table class="ll-table" id="ll-table"><thead id="ll-thead"></thead><tbody id="ll-tbody"></tbody></table>';
+
+  var rows = getFilteredLineRows();
+  var sort = state.ll.sort;
+  rows = rows.slice().sort(function(a,b){
+    if(sort.key==="lineNo"){
+      var c = naturalCompare(a.seqKey,b.seqKey);
+      if(c!==0) return c*sort.dir;
+      var av2 = a.isBranch?1:0, bv2 = b.isBranch?1:0;
+      if(av2!==bv2) return av2-bv2;
+      return naturalCompare(a.key,b.key);
+    }
+    var av = sort.key==="drawingsDisplay" ? a.drawings.join(", ") : displayVal(a,sort.key);
+    var bv = sort.key==="drawingsDisplay" ? b.drawings.join(", ") : displayVal(b,sort.key);
+    return naturalCompare(av,bv) * sort.dir;
+  });
+
+  var visibleCols = visibleLLColumns(rows);
+
+  var theadHtml = '<tr><th class="nosort" style="width:22px;">&#9679;</th>';
+  visibleCols.forEach(function(c){
+    var ind = "";
+    if(sort.key===c.key) ind = '<span class="sort-ind">'+(sort.dir===1?"\u25B2":"\u25BC")+'</span>';
+    theadHtml += '<th class="'+(c.noSort?"nosort":"")+'" data-sort="'+c.key+'">'+escapeHtml(c.label)+ind+'</th>';
+  });
+  theadHtml += "</tr>";
+  document.getElementById("ll-thead").innerHTML = theadHtml;
+
+  var bodyHtml = "";
+  rows.forEach(function(r){
+    var selected = state.ll.selectedLine===r.key;
+    var st = rowStatus(r);
+    var dotHtml = st==="clean" ? "" : '<span class="tl-dot '+st+'" title="'+escapeHtml(st.charAt(0).toUpperCase()+st.slice(1)+(st==="outstanding"?": "+r.flagReasons.join("; "):"")+" \u2014 click to toggle ignore")+'" data-action="tl-toggle" data-rowkey="'+escapeHtml(r.key)+'"></span>';
+    bodyHtml += '<tr class="ll-row'+(st!=="clean"?" status-"+st:"")+(selected?" selected":"")+'" data-rowkey="'+escapeHtml(r.key)+'">';
+    bodyHtml += '<td class="llc flagcell">'+dotHtml+'</td>';
+    visibleCols.forEach(function(c){
+      var val = displayVal(r,c.key);
+      if(c.key==="lineNo"){
+        var branchBadge = r.isBranch ? '<span class="branch-badge" title="Branch off the main line (e.g. drain takeoff)">branch</span>' : '';
+        bodyHtml += '<td class="llc num linecell">'+branchBadge+escapeHtml(val)+'</td>';
+      } else if(c.editable){
+        var overridden = isOverridden(r,c.key);
+        bodyHtml += '<td class="llc wrap editable" data-action="edit-cell" data-rowkey="'+escapeHtml(r.key)+'" data-field="'+c.key+'">'+escapeHtml(val||"")+(overridden?'<span class="edited-tag" title="Was: '+escapeHtml(r[c.key]||"(blank)")+'">edited</span><span class="undo-icon" title="Revert to original: '+escapeHtml(r[c.key]||"(blank)")+'" data-action="revert-cell" data-rowkey="'+escapeHtml(r.key)+'" data-field="'+c.key+'">\u21BA</span>':'')+'</td>';
+      } else if(c.key==="drawingCount"){
+        bodyHtml += '<td class="llc num">'+r.drawingCount+'</td>';
+      } else {
+        bodyHtml += '<td class="llc wrap">'+escapeHtml(val||"")+'</td>';
+      }
+    });
+    bodyHtml += "</tr>";
+  });
+  if(rows.length===0){
+    bodyHtml = '<tr><td colspan="'+(visibleCols.length+1)+'" style="padding:24px;text-align:center;color:var(--ink-faint);">No lines match the current filters.</td></tr>';
+  }
+  document.getElementById("ll-tbody").innerHTML = bodyHtml;
+
+  // wire sort
+  Array.prototype.forEach.call(document.querySelectorAll("#ll-thead th[data-sort]"), function(th){
+    th.addEventListener("click", function(){
+      var key = th.getAttribute("data-sort");
+      if(state.ll.sort.key===key) state.ll.sort.dir *= -1;
+      else state.ll.sort = {key:key, dir:1};
+      renderLineListTable();
+    });
+  });
+  // wire traffic-light toggle
+  Array.prototype.forEach.call(document.querySelectorAll('[data-action="tl-toggle"]'), function(dot){
+    dot.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      var rk = dot.getAttribute("data-rowkey");
+      setIgnored(rk, !state.ll.ignored[rk]);
+      renderLineListTable();
+    });
+  });
+  // wire inline undo (revert a single edited cell back to its computed value)
+  Array.prototype.forEach.call(document.querySelectorAll('[data-action="revert-cell"]'), function(icon){
+    icon.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      revertField(icon.getAttribute("data-rowkey"), icon.getAttribute("data-field"));
+      renderLineListTable();
+    });
+  });
+  // wire row selection (delegated) -> drives the right-hand review panel
+  document.getElementById("ll-tbody").addEventListener("click", function(e){
+    var tr = e.target && e.target.closest ? e.target.closest("tr.ll-row") : null;
+    if(!tr) return;
+    selectLine(tr.getAttribute("data-rowkey"));
+  });
+  // wire inline edit
+  Array.prototype.forEach.call(document.querySelectorAll('[data-action="edit-cell"]'), function(td){
+    td.addEventListener("click", function(){
+      if(td.querySelector("input")) return;
+      var rk = td.getAttribute("data-rowkey"), fld = td.getAttribute("data-field");
+      var current = displayVal(state.lineRows.filter(function(r){return r.key===rk;})[0], fld) || "";
+      td.innerHTML = '<input type="text" value="'+escapeHtml(current)+'">';
+      var input = td.querySelector("input");
+      input.focus(); input.select();
+      function commit(){
+        var val = input.value;
+        if(!state.overrides[rk]) state.overrides[rk] = {};
+        state.overrides[rk][fld] = val;
+        renderLineListTable();
+      }
+      input.addEventListener("blur", commit);
+      input.addEventListener("keydown", function(ev){
+        if(ev.key==="Enter") input.blur();
+        if(ev.key==="Escape"){ renderLineListTable(); }
+      });
+      input.addEventListener("click", function(ev){ ev.stopPropagation(); });
+    });
+  });
+
+  renderLineListAside();
+}
+
+function renderLineList(){
+  renderLineListToolbar();
+  renderLineListTable();
+  renderTitleblock();
+}
+
+/* ============================================================
+   Export: Line List (clean data sheet + project-info sheet,
+   so it drops cleanly into a report/Report Creator workflow)
+   ============================================================ */
+function versionHistorySheet(historyArr, columns){
+  var aoa = [columns.map(function(c){ return c.label; })];
+  historyArr.forEach(function(h){
+    aoa.push(columns.map(function(c){ return h[c.key]!==undefined ? h[c.key] : ""; }));
+  });
+  var ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = columns.map(function(){ return {wch:16}; });
+  return ws;
+}
+
+function exportLineList(){
+  var rows = getFilteredLineRows().slice().sort(function(a,b){
+    var c = naturalCompare(a.seqKey,b.seqKey);
+    if(c!==0) return c;
+    var av = a.isBranch?1:0, bv = b.isBranch?1:0;
+    if(av!==bv) return av-bv;
+    return naturalCompare(a.key,b.key);
+  });
+  var visibleCols = visibleLLColumns(rows);
+
+  var aoa = [];
+  aoa.push(visibleCols.map(function(c){ return c.label; }).concat(["Review Status","Notes"]));
+  rows.forEach(function(r){
+    var line = visibleCols.map(function(c){
+      if(c.key==="drawingsDisplay") return r.drawings.join(", ");
+      if(c.key==="drawingCount") return r.drawingCount;
+      return displayVal(r,c.key) || "";
+    });
+    var st = rowStatus(r);
+    line.push(st.charAt(0).toUpperCase()+st.slice(1));
+    line.push(st==="outstanding" ? r.flagReasons.join("; ") : (r.isBranch ? "Branch off line "+r.seqKey : ""));
+    aoa.push(line);
+  });
+
+  var ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = visibleCols.map(function(){ return {wch:16}; }).concat([{wch:12},{wch:26}]);
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Line List");
+
+  state.exports.lineList.version++;
+  var v = state.exports.lineList.version;
+  state.exports.lineList.history.push({
+    version:"v"+v, generated:new Date().toLocaleString(), linesExported:rows.length,
+    outstanding: rows.filter(function(r){return rowStatus(r)==="outstanding";}).length,
+    fixed: rows.filter(function(r){return rowStatus(r)==="fixed";}).length,
+    ignored: rows.filter(function(r){return rowStatus(r)==="ignore";}).length
+  });
+
+  var infoAoa = [
+    ["DesignProcess \u2014 Plant 3D Line List"],
+    ["Version", "v"+v],
+    ["Project Name", state.project.projectName||""],
+    ["Project No.", state.project.projectNo||""],
+    ["Drawing Set", state.project.drawingSet||""],
+    ["Revision", state.project.revision||""],
+    ["Prepared By", state.project.preparedBy||""],
+    ["Date", state.project.reviewDate||""],
+    ["Source File", state.fileName||""],
+    ["Lines Exported", rows.length]
+  ];
+  var wsInfo = XLSX.utils.aoa_to_sheet(infoAoa);
+  wsInfo["!cols"] = [{wch:16},{wch:34}];
+  XLSX.utils.book_append_sheet(wb, wsInfo, "Project Info");
+
+  var wsHist = versionHistorySheet(state.exports.lineList.history, [
+    {key:"version", label:"Version"}, {key:"generated", label:"Generated"},
+    {key:"linesExported", label:"Lines Exported"}, {key:"outstanding", label:"Outstanding"},
+    {key:"fixed", label:"Fixed"}, {key:"ignored", label:"Ignored"}
+  ]);
+  XLSX.utils.book_append_sheet(wb, wsHist, "Version History");
+
+  var frag = (state.project.projectNo||"Project").replace(/[^a-z0-9\-_]+/gi,"_");
+  download(frag+"_LineList_v"+v+".xlsx", wb);
+  renderTitleblock();
+}
+
+/* ============================================================
+   Export: Action Report (by drawing, old vs new, for a drafter
+   to work through in Plant 3D and close off) \u2014 also lists
+   outstanding/unresolved items still in the current filtered
+   view, each with a Problem and Suggested Fix commentary column.
+   ============================================================ */
+function exportActionReport(){
+  var filtered = getFilteredLineRows();
+  var editedRows = filtered.filter(function(r){ return rowStatus(r)==="fixed"; });
+  var outstandingRows = filtered.filter(function(r){ return rowStatus(r)==="outstanding"; });
+  var ignoredRows = filtered.filter(function(r){ return rowStatus(r)==="ignore"; });
+  // A source without per-line drawing data (e.g. a "Pipe Line Group Traced"
+  // report) has no drawing to group edits by, so fall back to Area instead.
+  var hasDwgInfo = !!(state.lineListMeta && state.lineListMeta.hasDrawingInfo);
+  var groupLabel = hasDwgInfo ? "DRAWING" : "AREA";
+
+  var byGroup = {};
+  editedRows.forEach(function(r){
+    var ov = state.overrides[r.key] || {};
+    ["from","to"].forEach(function(fld){
+      if(ov[fld]===undefined) return;
+      var newVal = ov[fld];
+      var oldVal = r[fld];
+      var groupKey;
+      if(hasDwgInfo){
+        var candMap = fld==="from" ? r.fromCandDwg : r.toCandDwg;
+        groupKey = (candMap && (candMap[newVal] || candMap[oldVal])) ||
+          (fld==="from" ? (r.startDwg || r.drawings[0]) : (r.toDwg || r.drawings[r.drawings.length-1])) ||
+          "(Unknown Drawing)";
+      } else {
+        groupKey = r.area || "(Unspecified Area)";
+      }
+      if(!byGroup[groupKey]) byGroup[groupKey] = [];
+      byGroup[groupKey].push({ lineTag:r.lineTag, seqKey:r.seqKey, isBranch:r.isBranch, field:fld.toUpperCase(), oldVal:oldVal||"(blank)", newVal:newVal||"(blank)" });
+    });
+  });
+
+  state.exports.actionReport.version++;
+  var v = state.exports.actionReport.version;
+  state.exports.actionReport.history.push({
+    version:"v"+v, generated:new Date().toLocaleString(), inView:filtered.length,
+    edited:editedRows.length, outstanding:outstandingRows.length, ignored:ignoredRows.length
+  });
+
+  var groupNames = Object.keys(byGroup).sort(naturalCompare);
+  var aoa = [];
+  aoa.push(["DesignProcess \u2014 Plant 3D Line List: Action Report", "", "", "", "", "Version v"+v]);
+  aoa.push(["Project", state.project.projectName||"", "", "Prepared By", state.project.preparedBy||""]);
+  aoa.push(["Drawing Set", state.project.drawingSet||"", "", "Date", state.project.reviewDate||""]);
+  aoa.push(["Revision", state.project.revision||"", "", "Generated", new Date().toLocaleString()]);
+  aoa.push([]);
+  aoa.push(["This report reflects the current filtered view in the Line List tab ("+filtered.length+" lines shown). It lists edited lines grouped by the "+(hasDwgInfo?"drawing":"area")+" the change relates to (original vs corrected value), lines still outstanding/unresolved with a suggested fix, and lines marked ignored for reference. Work through each "+(hasDwgInfo?"drawing":"area")+", update Plant 3D to match, then mark it done."]);
+  aoa.push([]);
+
+  aoa.push(["EDITED LINES \u2014 BY "+groupLabel]);
+  if(groupNames.length===0){
+    aoa.push(["No edited lines in the current filtered view."]);
+  } else {
+    groupNames.forEach(function(g){
+      aoa.push([groupLabel+": "+g]);
+      aoa.push(["Line Tag","Field","Old Value (auto)","New Value (corrected)","Notes","Done?"]);
+      byGroup[g].forEach(function(item){
+        aoa.push([item.lineTag, item.field, item.oldVal, item.newVal, item.isBranch?"Branch off line "+item.seqKey:"", ""]);
+      });
+      aoa.push([]);
+    });
+  }
+
+  aoa.push(["OUTSTANDING / UNRESOLVED ITEMS \u2014 current filtered view ("+outstandingRows.length+" of "+filtered.length+" lines shown)"]);
+  aoa.push([hasDwgInfo?"Line Tag":"Line Tag","Drawings / Area","Problem","Suggested Fix","Done?"]);
+  if(outstandingRows.length===0){
+    aoa.push(["No outstanding items in the current filtered view.","","","",""]);
+  } else {
+    outstandingRows.forEach(function(r){
+      var suggestions = buildSuggestions(r);
+      var fixText = suggestions.map(function(s){ return s.title+": "+s.text; }).join(" | ");
+      var locationText = hasDwgInfo ? r.drawings.join(", ") : (r.area || "");
+      aoa.push([r.lineTag, locationText, r.flagReasons.join("; "), fixText, ""]);
+    });
+  }
+  aoa.push([]);
+
+  aoa.push(["IGNORED LINES (excluded from review \u2014 listed here for reference only)"]);
+  aoa.push(["Line Tag","Drawings / Area","Reason Flagged (if any)"]);
+  if(ignoredRows.length===0){
+    aoa.push(["No ignored lines in the current filtered view."]);
+  } else {
+    ignoredRows.forEach(function(r){
+      var locationText = hasDwgInfo ? r.drawings.join(", ") : (r.area || "");
+      aoa.push([r.lineTag, locationText, r.flagged ? r.flagReasons.join("; ") : ""]);
+    });
+  }
+
+  var ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{wch:26},{wch:12},{wch:34},{wch:34},{wch:26},{wch:8}];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Action Report");
+
+  var wsHist = versionHistorySheet(state.exports.actionReport.history, [
+    {key:"version", label:"Version"}, {key:"generated", label:"Generated"},
+    {key:"inView", label:"Lines In View"}, {key:"edited", label:"Edited"},
+    {key:"outstanding", label:"Outstanding"}, {key:"ignored", label:"Ignored"}
+  ]);
+  XLSX.utils.book_append_sheet(wb, wsHist, "Version History");
+
+  var frag = (state.project.projectNo||"Project").replace(/[^a-z0-9\-_]+/gi,"_");
+  download(frag+"_ActionReport_v"+v+".xlsx", wb);
+  renderTitleblock();
+}
+
+/* ============================================================
+   Render: Data Manager tab (Spec Consistency Viewer pattern)
+   ============================================================ */
+function dmCounts(name){
+  return sheetRowCount(name);
+}
+function isDmColumnEmpty(sheet, colIdx){
+  var aoa = state.workbook.sheets[sheet].aoa;
+  var headerRow = state.dm.headerRowBySheet[sheet]||0;
+  for(var i=headerRow+1;i<aoa.length;i++){
+    var v = aoa[i] ? aoa[i][colIdx] : null;
+    if(v!==null && v!==undefined && String(v).trim()!=="") return false;
+  }
+  return true;
+}
+
+function renderDataManagerSidebar(){
+  var bar = document.getElementById("dm-sheetbar-inner");
+  if(!state.workbook){ bar.innerHTML=""; return; }
+  var names = state.workbook.sheetNames.slice();
+  var groups = {};
+  names.forEach(function(n){ var cat=categorize(n); (groups[cat]=groups[cat]||[]).push(n); });
+  Object.keys(groups).forEach(function(cat){ groups[cat].sort(function(a,b){return a.localeCompare(b);}); });
+
+  var LINE_SOURCE = (state.lineListMeta && state.lineListMeta.sourceSheets) || [];
+
+  var html = "";
+  DM_CATEGORY_ORDER.forEach(function(cat){
+    var fullList = groups[cat];
+    if(!fullList || fullList.length===0) return;
+    var visibleList = state.dm.hideEmptySheets ? fullList.filter(function(n){ return dmCounts(n)>0; }) : fullList;
+    if(visibleList.length===0) return;
+    var collapsed = state.dm.collapsedGroups.has(cat);
+    html += '<div class="dm-group">';
+    html += '<button class="dm-group-head" data-action="dm-toggle-group" data-group="'+escapeHtml(cat)+'">';
+    html += '<span class="chev">'+(collapsed?"&#9656;":"&#9662;")+'</span>';
+    html += '<span class="grp-name">'+escapeHtml(cat)+' ('+fullList.length+')</span>';
+    html += '</button>';
+    if(!collapsed){
+      html += '<div class="dm-group-body">';
+      visibleList.forEach(function(name){
+        var cnt = dmCounts(name);
+        var isSource = LINE_SOURCE.indexOf(name)!==-1;
+        var cls = "dm-sheet-btn"+(name===state.dm.activeSheet?" active":"");
+        html += '<button class="'+cls+'" data-action="dm-select-sheet" data-sheet="'+escapeHtml(name)+'">' +
+          '<span>'+(isSource?'<span class="star" title="Source of Line List">&#9733;</span>':'')+escapeHtml(name)+'</span><span class="cnt">'+cnt+'</span></button>';
+      });
+      html += "</div>";
+    }
+    html += "</div>";
+  });
+  bar.innerHTML = html;
+
+  Array.prototype.forEach.call(bar.querySelectorAll('[data-action="dm-toggle-group"]'), function(b){
+    b.addEventListener("click", function(){
+      var cat = b.getAttribute("data-group");
+      if(state.dm.collapsedGroups.has(cat)) state.dm.collapsedGroups.delete(cat);
+      else state.dm.collapsedGroups.add(cat);
+      renderDataManagerSidebar();
+    });
+  });
+  Array.prototype.forEach.call(bar.querySelectorAll('[data-action="dm-select-sheet"]'), function(b){
+    b.addEventListener("click", function(){
+      state.dm.activeSheet = b.getAttribute("data-sheet");
+      renderDataManagerSidebar();
+      renderDataManagerToolbar();
+      renderDataManagerTable();
+    });
+  });
+}
+
+function renderDataManagerToolbar(){
+  if(!state.workbook) return;
+  document.getElementById("dm-header-row-label").textContent = (state.dm.headerRowBySheet[state.dm.activeSheet]||0)+1;
+  var hideBtn = document.getElementById("dm-hide-empty-btn");
+  hideBtn.textContent = state.dm.hideEmptyColumns ? "Show empty columns" : "Hide empty columns";
+  hideBtn.className = "dm-toolbar-btn"+(state.dm.hideEmptyColumns?" on":"");
+}
+
+function renderDataManagerTable(){
+  var tablewrap = document.getElementById("dm-tablewrap");
+  if(!state.workbook || !state.dm.activeSheet){
+    tablewrap.innerHTML = '<div class="dm-empty-note">Load a workbook to browse its sheets here.</div>';
+    return;
+  }
+  tablewrap.innerHTML = '<table class="dm-table" id="dm-table"><colgroup id="dm-colgroup"></colgroup><thead id="dm-thead"></thead><tbody id="dm-tbody"></tbody></table>';
+
+  var sheet = state.dm.activeSheet;
+  var aoa = state.workbook.sheets[sheet].aoa;
+  var headerRowIndex = state.dm.headerRowBySheet[sheet]||0;
+  var header = aoa[headerRowIndex]||[];
+  var dataStart = headerRowIndex+1;
+  var sort = state.dm.sort[sheet];
+  var search = state.dm.search.trim().toLowerCase();
+
+  var visibleCols = [];
+  for(var c=0;c<header.length;c++){
+    if(state.dm.hideEmptyColumns && isDmColumnEmpty(sheet,c)) continue;
+    visibleCols.push(c);
+  }
+
+  var headHtml = '<tr><th class="rownum-h">#</th>';
+  visibleCols.forEach(function(c){
+    var ind = "";
+    if(sort && sort.col===c) ind = '<span class="dm-sort-ind">'+(sort.dir===1?"\u25B2":"\u25BC")+'</span>';
+    headHtml += '<th data-col="'+c+'">'+escapeHtml(header[c]||("Column "+(c+1)))+ind+'<span class="dm-col-resize" data-col="'+c+'"></span></th>';
+  });
+  headHtml += "</tr>";
+  document.getElementById("dm-thead").innerHTML = headHtml;
+
+  var widths = state.dm.colWidths[sheet]||{};
+  var colgroupHtml = '<col style="width:34px">';
+  visibleCols.forEach(function(c){
+    var w = widths[c];
+    colgroupHtml += '<col'+(w?' style="width:'+w+'px"':"")+'>';
+  });
+  document.getElementById("dm-colgroup").innerHTML = colgroupHtml;
+
+  var dataRows = [];
+  for(var r=dataStart;r<aoa.length;r++){
+    var row = aoa[r];
+    if(!row) continue;
+    if(!row.some(function(v){ return v!==null && v!==undefined && String(v).trim()!==""; })) continue;
+    if(search){
+      var hay = row.join(" ").toLowerCase();
+      if(hay.indexOf(search)===-1) continue;
+    }
+    dataRows.push({r:r, row:row});
+  }
+  if(sort){
+    dataRows.sort(function(a,b){ return naturalCompare(a.row[sort.col], b.row[sort.col]) * sort.dir; });
+  }
+
+  var maxRows = Math.min(dataRows.length, 2000);
+  var bodyHtml = "";
+  for(var i=0;i<maxRows;i++){
+    var rowObj = dataRows[i];
+    bodyHtml += '<tr><td class="dm-rownum">'+(rowObj.r+1)+'</td>';
+    visibleCols.forEach(function(c){
+      var val = rowObj.row[c];
+      bodyHtml += '<td class="dm-cell">'+escapeHtml(val===null||val===undefined?"":val)+'</td>';
+    });
+    bodyHtml += "</tr>";
+  }
+  if(dataRows.length===0){
+    bodyHtml = '<tr><td colspan="'+(visibleCols.length+1)+'" style="padding:24px;text-align:center;color:var(--dm-ink-soft);">No rows'+(search?" match this filter":" on this sheet")+'.</td></tr>';
+  }
+  document.getElementById("dm-tbody").innerHTML = bodyHtml;
+  if(dataRows.length>2000){
+    var note = document.createElement("div");
+    note.className = "dm-empty-note";
+    note.textContent = "Showing first 2000 of "+dataRows.length+" rows.";
+    tablewrap.appendChild(note);
+  }
+
+  // sort
+  Array.prototype.forEach.call(document.querySelectorAll("#dm-thead th[data-col]"), function(th){
+    th.addEventListener("click", function(ev){
+      if(ev.target.classList.contains("dm-col-resize")) return;
+      var col = parseInt(th.getAttribute("data-col"),10);
+      var cur = state.dm.sort[sheet];
+      if(cur && cur.col===col) state.dm.sort[sheet] = {col:col, dir:cur.dir*-1};
+      else state.dm.sort[sheet] = {col:col, dir:1};
+      renderDataManagerTable();
+    });
+  });
+  // resize
+  Array.prototype.forEach.call(document.querySelectorAll(".dm-col-resize"), function(handle){
+    handle.addEventListener("mousedown", function(ev){
+      ev.stopPropagation(); ev.preventDefault();
+      var col = parseInt(handle.getAttribute("data-col"),10);
+      var startX = ev.clientX;
+      var th = handle.parentElement;
+      var startW = th.offsetWidth;
+      handle.classList.add("active");
+      function onMove(e2){
+        var w = Math.max(50, startW + (e2.clientX - startX));
+        if(!state.dm.colWidths[sheet]) state.dm.colWidths[sheet] = {};
+        state.dm.colWidths[sheet][col] = w;
+        var colgroupCols = document.getElementById("dm-colgroup").children;
+        var pos = visibleCols.indexOf(col)+1;
+        if(colgroupCols[pos]) colgroupCols[pos].style.width = w+"px";
+      }
+      function onUp(){
+        handle.classList.remove("active");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      }
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  });
+}
+
+function renderDataManager(){
+  document.getElementById("dm-sub").textContent = state.workbook
+    ? state.workbook.sheetNames.length + " sheets loaded from " + (state.fileName||"workbook")
+    : "Load a workbook from the Line List tab to browse its sheets here";
+  renderDataManagerSidebar();
+  renderDataManagerToolbar();
+  renderDataManagerTable();
+}
+
+function wireLineListStaticControls(){
+  var handle = document.getElementById("ll-resize-handle");
+  var aside = document.getElementById("ll-aside");
+  handle.addEventListener("mousedown", function(ev){
+    ev.preventDefault();
+    var startX = ev.clientX;
+    var startW = aside.offsetWidth;
+    handle.classList.add("active");
+    function onMove(e2){
+      var w = Math.min(560, Math.max(240, startW - (e2.clientX - startX)));
+      state.ll.asideWidth = w;
+      aside.style.width = w + "px";
+    }
+    function onUp(){
+      handle.classList.remove("active");
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function wireDataManagerStaticControls(){
+  document.getElementById("dm-search").addEventListener("input", function(e){
+    state.dm.search = e.target.value;
+    renderDataManagerTable();
+  });
+  document.querySelector('[data-action="dm-collapse-all"]').addEventListener("click", function(){
+    state.dm.collapsedGroups = new Set(DM_CATEGORY_ORDER);
+    renderDataManagerSidebar();
+  });
+  document.querySelector('[data-action="dm-expand-all"]').addEventListener("click", function(){
+    state.dm.collapsedGroups = new Set();
+    renderDataManagerSidebar();
+  });
+  document.querySelector('[data-action="dm-hide-empty-sheets"]').addEventListener("click", function(){
+    state.dm.hideEmptySheets = true;
+    renderDataManagerSidebar();
+  });
+  document.querySelector('[data-action="dm-show-all-sheets"]').addEventListener("click", function(){
+    state.dm.hideEmptySheets = false;
+    renderDataManagerSidebar();
+  });
+  document.querySelector('[data-action="dm-header-dec"]').addEventListener("click", function(){
+    if(!state.dm.activeSheet) return;
+    var cur = state.dm.headerRowBySheet[state.dm.activeSheet]||0;
+    state.dm.headerRowBySheet[state.dm.activeSheet] = Math.max(0, cur-1);
+    renderDataManagerToolbar(); renderDataManagerTable();
+  });
+  document.querySelector('[data-action="dm-header-inc"]').addEventListener("click", function(){
+    if(!state.dm.activeSheet) return;
+    var cur = state.dm.headerRowBySheet[state.dm.activeSheet]||0;
+    state.dm.headerRowBySheet[state.dm.activeSheet] = cur+1;
+    renderDataManagerToolbar(); renderDataManagerTable();
+  });
+  document.querySelector('[data-action="dm-toggle-hide-empty"]').addEventListener("click", function(){
+    state.dm.hideEmptyColumns = !state.dm.hideEmptyColumns;
+    renderDataManagerToolbar(); renderDataManagerTable();
+  });
+  document.querySelector('[data-action="dm-reset-widths"]').addEventListener("click", function(){
+    if(state.dm.activeSheet) state.dm.colWidths[state.dm.activeSheet] = {};
+    renderDataManagerTable();
+  });
+
+  // sheetbar resize handle
+  var handle = document.getElementById("dm-resize-handle");
+  var sheetbar = document.getElementById("dm-sheetbar");
+  handle.addEventListener("mousedown", function(ev){
+    ev.preventDefault();
+    var startX = ev.clientX;
+    var startW = sheetbar.offsetWidth;
+    handle.classList.add("active");
+    function onMove(e2){
+      var w = Math.min(420, Math.max(160, startW + (e2.clientX-startX)));
+      sheetbar.style.width = w+"px";
+    }
+    function onUp(){
+      handle.classList.remove("active");
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+/* ============================================================
+   Drag & drop / file input wiring
+   ============================================================ */
+function wireDropzone(){
+  var dz = document.getElementById("dropzone");
+  var inner = document.getElementById("dropzone-inner");
+  var input = document.getElementById("file-input");
+  document.getElementById("dropzone-choose").addEventListener("click", function(){ input.click(); });
+  input.addEventListener("change", function(e){
+    if(e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+    input.value="";
+  });
+  ["dragenter","dragover"].forEach(function(evt){
+    dz.addEventListener(evt, function(e){ e.preventDefault(); e.stopPropagation(); inner.classList.add("active"); });
+  });
+  ["dragleave","drop"].forEach(function(evt){
+    dz.addEventListener(evt, function(e){ e.preventDefault(); e.stopPropagation(); inner.classList.remove("active"); });
+  });
+  dz.addEventListener("drop", function(e){
+    var files = e.dataTransfer.files;
+    if(files && files[0]) handleFile(files[0]);
+  });
+}
+
+/* ============================================================
+   Master render
+   ============================================================ */
+function renderAll(){
+  renderTitleblock();
+  renderTabs();
+  document.getElementById("dropzone").style.display = state.workbook ? "none" : "flex";
+  renderLineList();
+  if(ACTIVE_TAB==="datamanager") renderDataManager();
+  document.getElementById("tab-linelist").classList.toggle("active", ACTIVE_TAB==="linelist");
+  document.getElementById("tab-datamanager").classList.toggle("active", ACTIVE_TAB==="datamanager");
+}
+
+wireDropzone();
+wireLineListStaticControls();
+wireDataManagerStaticControls();
+renderAll();
+
+})();
+</script>
+</body>
+</html>
