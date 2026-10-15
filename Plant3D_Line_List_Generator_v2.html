@@ -226,9 +226,23 @@
   tr:hover td.dm-cell{background:#f5f8f6;}
   .dm-empty-note{padding:30px;color:#7c8f97;font-size:12.5px;text-align:center;}
 
+  /* ---------- Consolidate (merge) modal ---------- */
+  .merge-backdrop{position:fixed;inset:0;background:rgba(10,15,20,0.55);display:flex;align-items:center;justify-content:center;z-index:50;}
+  .merge-modal{background:var(--panel);border-radius:4px;max-width:640px;width:92%;max-height:85vh;overflow:auto;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,0.35);}
+  .merge-modal h2{margin:0 0 4px;font-size:16px;color:var(--navy);}
+  .merge-modal .mm-sub{font-size:12px;color:var(--ink-soft);margin-bottom:14px;}
+  table.merge-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:14px;}
+  table.merge-table th, table.merge-table td{border:1px solid var(--line);padding:5px 7px;text-align:left;word-break:break-word;}
+  table.merge-table th{background:var(--panel-alt);}
+  .merge-field{margin-bottom:12px;}
+  .merge-field label{display:block;font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-faint);margin-bottom:4px;}
+  .merge-field select, .merge-field input[type=text]{width:100%;padding:6px 8px;border:1px solid var(--line-strong);border-radius:2px;background:var(--panel);color:var(--ink);font-size:12.5px;}
+  .merge-note{font-size:11px;color:var(--ink-soft);background:var(--panel-alt);border:1px solid var(--line);border-radius:3px;padding:8px 10px;margin-bottom:12px;line-height:1.5;}
+  .merge-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px;}
+
   /* ---------- Print ---------- */
   @media print{
-    #page-nav, .tb-actions, #btn-print, .ll-toolbar .btn, #tab-datamanager, #dropzone{display:none !important;}
+    #page-nav, .tb-actions, #btn-print, .ll-toolbar .btn, #tab-datamanager, #dropzone, #merge-modal-root{display:none !important;}
     header.titleblock{background:#fff !important;color:#000 !important;border-bottom:2px solid #000;}
     .tb-title h1, .tb-title .sub, .tb-field label, .tb-field input{color:#000 !important;}
     .tb-field input{border-bottom:1px solid #999;}
@@ -325,6 +339,7 @@
     </div>
   </div>
 </div>
+<div id="merge-modal-root"></div>
 
 <script>
 (function(){
@@ -339,6 +354,7 @@ var state = {
   lineListMeta: null,
   lineRows: [],             // consolidated line list (main + branch rows)
   overrides: {},            // row.key -> {from, to}
+  merges: {},               // merge.id -> {id, memberKeys:[...], from, to} - user-consolidated multi-page lines
   project: { projectName:"", projectNo:"", drawingSet:"", preparedBy:"", reviewDate:"", revision:"" },
   exports: {
     lineList: { version:0, history:[] },
@@ -348,6 +364,7 @@ var state = {
     search:"", service:"", spec:"", area:"",
     onlyOutstanding:false, hideIgnored:false, hideEmptyCols:false, hideBranches:false,
     ignored:{},              // row.key -> true
+    selected:{},             // row.key -> true (checked for consolidation)
     sort:{key:"lineNo", dir:1},
     selectedLine:null,       // row.key
     asideWidth:330
@@ -420,7 +437,9 @@ function handleFile(file){
       state.lineRows = res.rows;
       state.lineListMeta = res.meta;
       state.overrides = {};
+      state.merges = {};
       state.ll.ignored = {};
+      state.ll.selected = {};
       state.ll.selectedLine = null;
       // A traced/group-level export carries far fewer populated columns
       // than a full segment export, so default to hiding empty ones.
@@ -741,13 +760,191 @@ function rowStatus(row){
   if(state.ll.ignored[row.key]) return "ignore";
   var ov = state.overrides[row.key];
   if(ov && (ov.from!==undefined || ov.to!==undefined)) return "fixed";
+  if(row.merged) return "fixed";
   if(row.flagged) return "outstanding";
   return "clean";
 }
 function statusCounts(){
   var c = {outstanding:0, fixed:0, ignore:0, clean:0};
-  state.lineRows.forEach(function(r){ c[rowStatus(r)]++; });
+  getEffectiveLineRows().forEach(function(r){ c[rowStatus(r)]++; });
   return c;
+}
+
+/* ============================================================
+   Consolidate multi-page lines
+   ------------------------------------------------------------
+   Plant 3D sometimes exports the same physical line as more than
+   one row sharing a base Sequence Number, with every continuation
+   after the first suffixed with "*" (e.g. "028" and "028*"). These
+   are NOT auto-merged by resolveGroup() because that risks wrongly
+   folding together genuinely distinct lines that happen to share a
+   stripped base (e.g. "12" and "12A"). Instead, the user ticks the
+   rows to combine and confirms the From/To to keep. When two of the
+   selected rows have a matching To/From value between them (the
+   drawing- or page-handoff point), that value is excluded from the
+   candidate pool automatically, same spirit as the drawing-number
+   exclusion in resolveGroup.
+   ============================================================ */
+function baseSeqKey(k){ return String(k||"").replace(/\*+$/,""); }
+function isStarredSeqKey(k){ return /\*/.test(String(k||"")); }
+
+function getEffectiveLineRows(){
+  var mergedMemberKeys = {};
+  Object.keys(state.merges).forEach(function(id){
+    state.merges[id].memberKeys.forEach(function(k){ mergedMemberKeys[k]=true; });
+  });
+  var result = state.lineRows.filter(function(r){ return !mergedMemberKeys[r.key]; });
+  Object.keys(state.merges).forEach(function(id){
+    var mr = buildMergedRowFromRecord(state.merges[id]);
+    if(mr) result.push(mr);
+  });
+  return result;
+}
+
+function pickCanonicalRow(rows){
+  var nonStar = rows.filter(function(r){ return !isStarredSeqKey(r.seqKey); });
+  return nonStar[0] || rows[0];
+}
+
+function buildMergedRowFromRecord(rec){
+  var members = rec.memberKeys.map(function(k){
+    return state.lineRows.filter(function(r){ return r.key===k; })[0];
+  }).filter(Boolean);
+  if(members.length===0) return null;
+  var canonical = pickCanonicalRow(members);
+  var hasDwgInfo = !!(state.lineListMeta && state.lineListMeta.hasDrawingInfo);
+  var allSegments = [];
+  members.forEach(function(m){ allSegments = allSegments.concat(m.segments); });
+  var drawings = [];
+  if(hasDwgInfo){
+    members.forEach(function(m){ m.drawings.forEach(function(d){ if(drawings.indexOf(d)===-1) drawings.push(d); }); });
+    drawings.sort(naturalCompare);
+  }
+  function collectField(key){
+    var vals=[];
+    members.forEach(function(m){ if(m[key] && vals.indexOf(m[key])===-1) vals.push(m[key]); });
+    return vals.join(" / ");
+  }
+  var row = { key:"merged:"+rec.id, seqKey:canonical.seqKey, lineTag:canonical.lineTag,
+    drawings:drawings, drawingCount:drawings.length,
+    flagged:false, flagReasons:[], startCands:[], endCands:[],
+    startDwg:null, toDwg:null, fromCandDwg:{}, toCandDwg:{},
+    segments:allSegments, isBranch:false,
+    merged:true, mergeId:rec.id, mergedMemberTags:members.map(function(m){ return m.lineTag; }) };
+  Object.keys(COL_ALIASES).forEach(function(k){
+    if(LL_META_KEYS.indexOf(k)>=0) return;
+    row[k] = collectField(k);
+  });
+  row.from = rec.from; row.to = rec.to;
+  return row;
+}
+
+function computeMergeCandidates(members){
+  function v(r,f){ return displayVal(r,f) || ""; }
+  function nk(s){ return String(s||"").trim().toLowerCase(); }
+  var linked = {};
+  members.forEach(function(a){
+    members.forEach(function(b){
+      if(a===b) return;
+      var at=v(a,"to"), bf=v(b,"from");
+      if(at && bf && nk(at)===nk(bf)) linked[nk(at)]=true;
+    });
+  });
+  var fromVals=[], toVals=[], seenF={}, seenT={};
+  members.forEach(function(r){
+    var f=v(r,"from"), t=v(r,"to");
+    if(f && !linked[nk(f)] && !seenF[nk(f)]){ seenF[nk(f)]=true; fromVals.push(f); }
+    if(t && !linked[nk(t)] && !seenT[nk(t)]){ seenT[nk(t)]=true; toVals.push(t); }
+  });
+  fromVals.sort(naturalCompare); toVals.sort(naturalCompare);
+  return { fromVals:fromVals, toVals:toVals, linkedValues:Object.keys(linked) };
+}
+
+var mergeIdCounter = 0;
+function nextMergeId(){ mergeIdCounter++; return "m"+mergeIdCounter+"_"+Date.now(); }
+
+function createMerge(memberKeys, fromVal, toVal){
+  var id = nextMergeId();
+  state.merges[id] = { id:id, memberKeys:memberKeys.slice(), from:fromVal, to:toVal };
+  state.ll.selected = {};
+  state.ll.selectedLine = "merged:"+id;
+}
+function unmergeLine(mergeId){
+  delete state.merges[mergeId];
+}
+
+function openMergeModal(){
+  var keys = Object.keys(state.ll.selected);
+  var effRows = getEffectiveLineRows();
+  var members = keys.map(function(k){ return effRows.filter(function(r){ return r.key===k; })[0]; }).filter(Boolean);
+  if(members.length<2){ alert("Select at least two lines to consolidate."); return; }
+  if(members.some(function(m){ return m.merged || m.isBranch; })){
+    alert("A consolidated or branch line is in the selection and can't be combined further. Unmerge/deselect it first.");
+    return;
+  }
+  var cand = computeMergeCandidates(members);
+  renderMergeModal(members, cand);
+}
+
+function renderMergeModal(members, cand){
+  var root = document.getElementById("merge-modal-root");
+  var canonical = pickCanonicalRow(members);
+  function opt(list, chosen){
+    var out = list.map(function(v){
+      return '<option value="'+escapeHtml(v)+'"'+(v===chosen?" selected":"")+'>'+escapeHtml(v)+(v===chosen?" (suggested)":"")+'</option>';
+    }).join("");
+    out += '<option value="__custom__">Type manually…</option>';
+    return out;
+  }
+  var defFrom = cand.fromVals[0]||"";
+  var defTo = cand.toVals[0]||"";
+  var linkedNote = cand.linkedValues.length
+    ? '<div class="merge-note"><b>Detected handoff value'+(cand.linkedValues.length>1?"s":"")+':</b> '+cand.linkedValues.map(escapeHtml).join(", ")+' appear as both a To and a From across the selected lines, so '+(cand.linkedValues.length>1?"they've":"it's")+' been excluded as real endpoints and treated as an internal page-to-page handoff.</div>'
+    : '<div class="merge-note">No matching To/From handoff was detected between the selected lines — pick the From and To manually below.</div>';
+  var rowsHtml = members.map(function(m){
+    return '<tr><td>'+escapeHtml(m.lineTag)+'</td><td>'+escapeHtml(displayVal(m,"from")||"")+'</td><td>'+escapeHtml(displayVal(m,"to")||"")+'</td><td>'+escapeHtml((m.drawings&&m.drawings.length?m.drawings.join(", "):(m.area||"")))+'</td></tr>';
+  }).join("");
+  root.innerHTML =
+    '<div class="merge-backdrop" id="merge-backdrop">'+
+      '<div class="merge-modal">'+
+        '<h2>Consolidate '+members.length+' Lines</h2>'+
+        '<div class="mm-sub">These will be combined into one line, tagged <b>'+escapeHtml(canonical.lineTag)+'</b>.</div>'+
+        '<table class="merge-table"><thead><tr><th>Line Tag</th><th>From</th><th>To</th><th>Drawings / Area</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>'+
+        linkedNote+
+        '<div class="merge-field"><label>Consolidated From</label><select id="merge-from">'+opt(cand.fromVals, defFrom)+'</select>'+
+          '<input type="text" id="merge-from-custom" style="display:none;margin-top:6px;" placeholder="Enter From value"></div>'+
+        '<div class="merge-field"><label>Consolidated To</label><select id="merge-to">'+opt(cand.toVals, defTo)+'</select>'+
+          '<input type="text" id="merge-to-custom" style="display:none;margin-top:6px;" placeholder="Enter To value"></div>'+
+        '<div class="merge-actions"><button class="btn btn-sm" id="merge-cancel">Cancel</button><button class="btn btn-primary" id="merge-confirm">Consolidate</button></div>'+
+      '</div>'+
+    '</div>';
+
+  function wireCustom(selId, inputId){
+    var sel = document.getElementById(selId), inp = document.getElementById(inputId);
+    if(sel.value==="__custom__") inp.style.display="block";
+    sel.addEventListener("change", function(){
+      if(sel.value==="__custom__"){ inp.style.display="block"; inp.focus(); }
+      else inp.style.display="none";
+    });
+  }
+  wireCustom("merge-from","merge-from-custom");
+  wireCustom("merge-to","merge-to-custom");
+
+  document.getElementById("merge-cancel").addEventListener("click", closeMergeModal);
+  document.getElementById("merge-backdrop").addEventListener("click", function(ev){ if(ev.target.id==="merge-backdrop") closeMergeModal(); });
+  document.getElementById("merge-confirm").addEventListener("click", function(){
+    var fromSel = document.getElementById("merge-from").value;
+    var toSel = document.getElementById("merge-to").value;
+    var fromVal = fromSel==="__custom__" ? document.getElementById("merge-from-custom").value.trim() : fromSel;
+    var toVal = toSel==="__custom__" ? document.getElementById("merge-to-custom").value.trim() : toSel;
+    createMerge(members.map(function(m){ return m.key; }), fromVal, toVal);
+    closeMergeModal();
+    renderLineList();
+  });
+}
+function closeMergeModal(){
+  var root = document.getElementById("merge-modal-root");
+  if(root) root.innerHTML = "";
 }
 
 function renderTitleblock(){
@@ -758,7 +955,7 @@ function renderTitleblock(){
     ? '<span class="progress-chip" title="'+escapeHtml(state.fileName)+'">Loaded: '+escapeHtml(state.fileName.length>30?state.fileName.slice(0,27)+"\u2026":state.fileName)+'</span>'
     : "";
   var countChip = counts
-    ? '<span class="progress-chip">'+state.lineRows.length+' lines</span>' +
+    ? '<span class="progress-chip">'+getEffectiveLineRows().length+' lines</span>' +
       (counts.outstanding>0 ? '<span class="progress-chip warn">'+counts.outstanding+' outstanding</span>' : '<span class="progress-chip">all resolved</span>')
     : "";
 
@@ -837,7 +1034,7 @@ function renderTabs(){
    ============================================================ */
 function getFilteredLineRows(){
   var q = state.ll.search.trim().toLowerCase();
-  return state.lineRows.filter(function(r){
+  return getEffectiveLineRows().filter(function(r){
     var st = rowStatus(r);
     if(state.ll.hideIgnored && st==="ignore") return false;
     if(state.ll.hideBranches && r.isBranch) return false;
@@ -854,7 +1051,7 @@ function getFilteredLineRows(){
 }
 function distinctValues(key){
   var set = {};
-  state.lineRows.forEach(function(r){ if(r[key]) set[r[key]]=true; });
+  getEffectiveLineRows().forEach(function(r){ if(r[key]) set[r[key]]=true; });
   return Object.keys(set).sort(naturalCompare);
 }
 function displayVal(row, key){
@@ -883,6 +1080,7 @@ function renderLineListToolbar(){
   }
   var filteredCount = getFilteredLineRows().length;
   var counts = statusCounts();
+  var selectedCount = Object.keys(state.ll.selected).length;
   el.innerHTML =
     '<div class="ll-field"><label>Search</label><input type="text" id="ll-search" placeholder="Line tag, from, to, drawing\u2026" value="'+escapeHtml(state.ll.search)+'"></div>' +
     '<div class="ll-field"><label>Service</label><select id="ll-filter-service">'+opts(services,state.ll.service)+'</select></div>' +
@@ -901,8 +1099,10 @@ function renderLineListToolbar(){
     '<button class="btn btn-sm" id="ll-undo-all-edits" title="Revert every edited From/To back to its original computed value">Undo All Edits</button>' +
     '<button class="btn btn-sm'+(state.ll.hideBranches?" btn-toggle on":"")+'" id="ll-hide-branches" title="Hide branch rows (e.g. drain takeoffs) split out from their parent line">'+(state.ll.hideBranches?"Show Branches":"Hide Branches")+'</button>' +
     '<button class="btn btn-sm" id="ll-reset-filters">Reset Filters</button>' +
+    '<button class="btn btn-sm btn-primary" id="ll-consolidate" title="Combine the ticked lines into one, picking the From/To to keep"'+(selectedCount>=2?"":" disabled")+'>Consolidate Selected ('+selectedCount+')</button>' +
+    (selectedCount>0 ? '<button class="btn btn-sm" id="ll-clear-selection">Clear Selection</button>' : '') +
     '<div class="ll-spacer"></div>' +
-    '<div class="ll-count">'+filteredCount+' of '+state.lineRows.length+' lines shown</div>';
+    '<div class="ll-count">'+filteredCount+' of '+getEffectiveLineRows().length+' lines shown</div>';
 
   document.getElementById("ll-search").addEventListener("input", function(e){ state.ll.search=e.target.value; renderLineList(); });
   document.getElementById("ll-filter-service").addEventListener("change", function(e){ state.ll.service=e.target.value; renderLineList(); });
@@ -928,6 +1128,10 @@ function renderLineListToolbar(){
     state.ll.search=""; state.ll.service=""; state.ll.spec=""; state.ll.area=""; state.ll.onlyOutstanding=false; state.ll.hideBranches=false;
     renderLineList();
   });
+  var consolidateBtn = document.getElementById("ll-consolidate");
+  if(consolidateBtn) consolidateBtn.addEventListener("click", openMergeModal);
+  var clearSelBtn = document.getElementById("ll-clear-selection");
+  if(clearSelBtn) clearSelBtn.addEventListener("click", function(){ state.ll.selected={}; renderLineList(); });
 }
 
 function columnIsEmpty(rows, key){
@@ -1001,7 +1205,7 @@ function renderLineListAside(){
   var tagEl = document.getElementById("ll-aside-tag");
   var body = document.getElementById("ll-aside-body");
   var key = state.ll.selectedLine;
-  var row = key ? state.lineRows.filter(function(r){return r.key===key;})[0] : null;
+  var row = key ? getEffectiveLineRows().filter(function(r){return r.key===key;})[0] : null;
   if(!row){
     tagEl.textContent = "No line selected";
     body.innerHTML = '<div class="ll-aside-placeholder">Click any line in the table to see its status, segment detail, and (for outstanding lines) a suggested cause and candidate values to choose from.</div>';
@@ -1019,6 +1223,14 @@ function renderLineListAside(){
       ? '<button class="btn btn-sm" data-action="aside-unignore" data-rowkey="'+escapeHtml(row.key)+'">Restore (Un-ignore)</button>'
       : '<button class="btn btn-sm" data-action="aside-ignore" data-rowkey="'+escapeHtml(row.key)+'">Ignore this line</button>') +
     '</div>';
+
+  var hasFieldOverride = !!(state.overrides[row.key] && (state.overrides[row.key].from!==undefined || state.overrides[row.key].to!==undefined));
+
+  if(row.merged){
+    html += '<div class="ll-aside-section-title">Consolidated Line</div>';
+    html += '<div class="ll-ok-box" style="background:var(--green-soft);border-color:#9bcbab;color:#1e5c3a;">Combined from: <b>'+escapeHtml((row.mergedMemberTags||[]).join(", "))+'</b></div>';
+    html += '<div class="ll-aside-actions"><button class="btn btn-sm" data-action="unmerge-row" data-mergeid="'+escapeHtml(row.mergeId)+'">Unmerge (restore original lines)</button></div>';
+  }
 
   if(st==="outstanding"){
     var suggestions = buildSuggestions(row);
@@ -1040,7 +1252,7 @@ function renderLineListAside(){
       });
       html += '</div>';
     }
-  } else if(st==="fixed"){
+  } else if(hasFieldOverride){
     html += '<div class="ll-aside-section-title">Edit History &mdash; What It Was Called</div>';
     var ov = state.overrides[row.key]||{};
     ["from","to"].forEach(function(f){
@@ -1056,7 +1268,7 @@ function renderLineListAside(){
   } else if(st==="ignore"){
     html += '<div class="ll-ok-box" style="background:#eceff1;border-color:#c7cdd2;color:var(--ink-soft);">This line is marked ignored and excluded from the outstanding count' +
       (row.flagged ? " (it would otherwise be flagged: "+escapeHtml(row.flagReasons.join("; "))+")" : "") + '.</div>';
-  } else {
+  } else if(!row.merged){
     html += '<div class="ll-ok-box">No issues detected \u2014 the From and To endpoints resolved unambiguously from the source data.</div>';
   }
 
@@ -1091,6 +1303,12 @@ function renderLineListAside(){
   var revertRowBtn = body.querySelector('[data-action="revert-row"]');
   if(revertRowBtn) revertRowBtn.addEventListener("click", function(){
     revertRow(revertRowBtn.getAttribute("data-rowkey"));
+    renderLineListTable();
+  });
+  var unmergeBtn = body.querySelector('[data-action="unmerge-row"]');
+  if(unmergeBtn) unmergeBtn.addEventListener("click", function(){
+    unmergeLine(unmergeBtn.getAttribute("data-mergeid"));
+    state.ll.selectedLine = null;
     renderLineListTable();
   });
 }
@@ -1128,7 +1346,18 @@ function renderLineListTable(){
 
   var visibleCols = visibleLLColumns(rows);
 
-  var theadHtml = '<tr><th class="nosort" style="width:22px;">&#9679;</th>';
+  var selectableRows = rows.filter(function(r){ return !r.merged && !r.isBranch; });
+  var allSelected = selectableRows.length>0 && selectableRows.every(function(r){ return state.ll.selected[r.key]; });
+
+  var mergeGroups = {};
+  rows.forEach(function(r){
+    if(r.isBranch || r.merged) return;
+    var base = baseSeqKey(r.seqKey);
+    (mergeGroups[base]=mergeGroups[base]||[]).push(r);
+  });
+
+  var theadHtml = '<tr><th class="nosort" style="width:22px;">&#9679;</th>' +
+    '<th class="nosort" style="width:26px;text-align:center;"><input type="checkbox" id="ll-select-all"'+(allSelected?" checked":"")+' title="Select all shown (consolidatable) lines"></th>';
   visibleCols.forEach(function(c){
     var ind = "";
     if(sort.key===c.key) ind = '<span class="sort-ind">'+(sort.dir===1?"\u25B2":"\u25BC")+'</span>';
@@ -1144,11 +1373,23 @@ function renderLineListTable(){
     var dotHtml = st==="clean" ? "" : '<span class="tl-dot '+st+'" title="'+escapeHtml(st.charAt(0).toUpperCase()+st.slice(1)+(st==="outstanding"?": "+r.flagReasons.join("; "):"")+" \u2014 click to toggle ignore")+'" data-action="tl-toggle" data-rowkey="'+escapeHtml(r.key)+'"></span>';
     bodyHtml += '<tr class="ll-row'+(st!=="clean"?" status-"+st:"")+(selected?" selected":"")+'" data-rowkey="'+escapeHtml(r.key)+'">';
     bodyHtml += '<td class="llc flagcell">'+dotHtml+'</td>';
+    var checkDisabled = r.merged || r.isBranch;
+    var checkTitle = r.merged ? "Already consolidated — unmerge from the review panel to re-select its lines" : (r.isBranch ? "Branch lines can’t be consolidated" : "");
+    bodyHtml += '<td class="llc" style="text-align:center;"><input type="checkbox" class="ll-row-check" data-rowkey="'+escapeHtml(r.key)+'"'+(state.ll.selected[r.key]?" checked":"")+(checkDisabled?" disabled":"")+(checkTitle?' title="'+escapeHtml(checkTitle)+'"':'')+'></td>';
     visibleCols.forEach(function(c){
       var val = displayVal(r,c.key);
       if(c.key==="lineNo"){
         var branchBadge = r.isBranch ? '<span class="branch-badge" title="Branch off the main line (e.g. drain takeoff)">branch</span>' : '';
-        bodyHtml += '<td class="llc num linecell">'+branchBadge+escapeHtml(val)+'</td>';
+        var mergedBadge = r.merged ? '<span class="branch-badge" style="color:#1e5c3a;border-color:#9bcbab;background:var(--green-soft);" title="Consolidated from: '+escapeHtml((r.mergedMemberTags||[]).join(", "))+'">merged</span>' : '';
+        var groupBadge = "";
+        if(!r.isBranch && !r.merged){
+          var base = baseSeqKey(r.seqKey);
+          var grp = mergeGroups[base];
+          if(grp && grp.length>1){
+            groupBadge = '<span class="branch-badge" style="color:#1d5a8a;border-color:#bcd6ec;background:#e4eefa;cursor:pointer;" data-action="select-group" data-basekey="'+escapeHtml(base)+'" title="Part of a '+grp.length+'-row multi-page line (same tag, continued with a &quot;*&quot; suffix). Click to tick all '+grp.length+' for consolidation.">multi-page ×'+grp.length+'</span>';
+          }
+        }
+        bodyHtml += '<td class="llc num linecell">'+branchBadge+mergedBadge+groupBadge+escapeHtml(val)+'</td>';
       } else if(c.editable){
         var overridden = isOverridden(r,c.key);
         bodyHtml += '<td class="llc wrap editable" data-action="edit-cell" data-rowkey="'+escapeHtml(r.key)+'" data-field="'+c.key+'">'+escapeHtml(val||"")+(overridden?'<span class="edited-tag" title="Was: '+escapeHtml(r[c.key]||"(blank)")+'">edited</span><span class="undo-icon" title="Revert to original: '+escapeHtml(r[c.key]||"(blank)")+'" data-action="revert-cell" data-rowkey="'+escapeHtml(r.key)+'" data-field="'+c.key+'">\u21BA</span>':'')+'</td>';
@@ -1161,7 +1402,7 @@ function renderLineListTable(){
     bodyHtml += "</tr>";
   });
   if(rows.length===0){
-    bodyHtml = '<tr><td colspan="'+(visibleCols.length+1)+'" style="padding:24px;text-align:center;color:var(--ink-faint);">No lines match the current filters.</td></tr>';
+    bodyHtml = '<tr><td colspan="'+(visibleCols.length+2)+'" style="padding:24px;text-align:center;color:var(--ink-faint);">No lines match the current filters.</td></tr>';
   }
   document.getElementById("ll-tbody").innerHTML = bodyHtml;
 
@@ -1183,6 +1424,35 @@ function renderLineListTable(){
       renderLineListTable();
     });
   });
+  // wire row-selection checkboxes (for consolidating multi-page lines)
+  Array.prototype.forEach.call(document.querySelectorAll('.ll-row-check'), function(cb){
+    cb.addEventListener("click", function(ev){ ev.stopPropagation(); });
+    cb.addEventListener("change", function(){
+      var rk = cb.getAttribute("data-rowkey");
+      if(cb.checked) state.ll.selected[rk] = true; else delete state.ll.selected[rk];
+      renderLineListToolbar();
+    });
+  });
+  var selectAllCb = document.getElementById("ll-select-all");
+  if(selectAllCb){
+    selectAllCb.addEventListener("click", function(ev){ ev.stopPropagation(); });
+    selectAllCb.addEventListener("change", function(){
+      if(selectAllCb.checked) selectableRows.forEach(function(r){ state.ll.selected[r.key]=true; });
+      else selectableRows.forEach(function(r){ delete state.ll.selected[r.key]; });
+      renderLineListTable();
+      renderLineListToolbar();
+    });
+  }
+  // wire "multi-page xN" badge -> select the whole group at once
+  Array.prototype.forEach.call(document.querySelectorAll('[data-action="select-group"]'), function(b){
+    b.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      var base = b.getAttribute("data-basekey");
+      rows.forEach(function(r){ if(!r.isBranch && !r.merged && baseSeqKey(r.seqKey)===base) state.ll.selected[r.key]=true; });
+      renderLineListTable();
+      renderLineListToolbar();
+    });
+  });
   // wire inline undo (revert a single edited cell back to its computed value)
   Array.prototype.forEach.call(document.querySelectorAll('[data-action="revert-cell"]'), function(icon){
     icon.addEventListener("click", function(ev){
@@ -1202,7 +1472,7 @@ function renderLineListTable(){
     td.addEventListener("click", function(){
       if(td.querySelector("input")) return;
       var rk = td.getAttribute("data-rowkey"), fld = td.getAttribute("data-field");
-      var current = displayVal(state.lineRows.filter(function(r){return r.key===rk;})[0], fld) || "";
+      var current = displayVal(getEffectiveLineRows().filter(function(r){return r.key===rk;})[0], fld) || "";
       td.innerHTML = '<input type="text" value="'+escapeHtml(current)+'">';
       var input = td.querySelector("input");
       input.focus(); input.select();
@@ -1264,7 +1534,7 @@ function exportLineList(){
     });
     var st = rowStatus(r);
     line.push(st.charAt(0).toUpperCase()+st.slice(1));
-    line.push(st==="outstanding" ? r.flagReasons.join("; ") : (r.isBranch ? "Branch off line "+r.seqKey : ""));
+    line.push(st==="outstanding" ? r.flagReasons.join("; ") : (r.isBranch ? "Branch off line "+r.seqKey : (r.merged ? "Consolidated from: "+(r.mergedMemberTags||[]).join(", ") : "")));
     aoa.push(line);
   });
 
@@ -1318,7 +1588,11 @@ function exportLineList(){
    ============================================================ */
 function exportActionReport(){
   var filtered = getFilteredLineRows();
-  var editedRows = filtered.filter(function(r){ return rowStatus(r)==="fixed"; });
+  var editedRows = filtered.filter(function(r){
+    var ov = state.overrides[r.key];
+    return !!(ov && (ov.from!==undefined || ov.to!==undefined));
+  });
+  var mergedRowsList = filtered.filter(function(r){ return r.merged; });
   var outstandingRows = filtered.filter(function(r){ return rowStatus(r)==="outstanding"; });
   var ignoredRows = filtered.filter(function(r){ return rowStatus(r)==="ignore"; });
   // A source without per-line drawing data (e.g. a "Pipe Line Group Traced"
@@ -1351,7 +1625,7 @@ function exportActionReport(){
   var v = state.exports.actionReport.version;
   state.exports.actionReport.history.push({
     version:"v"+v, generated:new Date().toLocaleString(), inView:filtered.length,
-    edited:editedRows.length, outstanding:outstandingRows.length, ignored:ignoredRows.length
+    edited:editedRows.length, consolidated:mergedRowsList.length, outstanding:outstandingRows.length, ignored:ignoredRows.length
   });
 
   var groupNames = Object.keys(byGroup).sort(naturalCompare);
@@ -1377,6 +1651,17 @@ function exportActionReport(){
       aoa.push([]);
     });
   }
+
+  aoa.push(["CONSOLIDATED LINES \u2014 multi-page lines combined into one"]);
+  aoa.push(["New Line Tag","Combined From Lines","Final From","Final To","Done?"]);
+  if(mergedRowsList.length===0){
+    aoa.push(["No consolidated lines in the current filtered view.","","","",""]);
+  } else {
+    mergedRowsList.forEach(function(r){
+      aoa.push([r.lineTag, (r.mergedMemberTags||[]).join(", "), displayVal(r,"from")||"(blank)", displayVal(r,"to")||"(blank)", ""]);
+    });
+  }
+  aoa.push([]);
 
   aoa.push(["OUTSTANDING / UNRESOLVED ITEMS \u2014 current filtered view ("+outstandingRows.length+" of "+filtered.length+" lines shown)"]);
   aoa.push([hasDwgInfo?"Line Tag":"Line Tag","Drawings / Area","Problem","Suggested Fix","Done?"]);
@@ -1411,6 +1696,7 @@ function exportActionReport(){
   var wsHist = versionHistorySheet(state.exports.actionReport.history, [
     {key:"version", label:"Version"}, {key:"generated", label:"Generated"},
     {key:"inView", label:"Lines In View"}, {key:"edited", label:"Edited"},
+    {key:"consolidated", label:"Consolidated"},
     {key:"outstanding", label:"Outstanding"}, {key:"ignored", label:"Ignored"}
   ]);
   XLSX.utils.book_append_sheet(wb, wsHist, "Version History");
